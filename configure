@@ -1,0 +1,14 @@
+#!/bin/sh
+usage () {
+cat<<EOF
+usage: configure [ -h | -g ]
+EOF
+}
+debug=no
+while [ $# -gt 0 ]
+do
+  -h) usage; exit 0;;
+  -g) debug=yes;;
+  *) echo "configure: error: invalid option '$1'" 1>&2; exit 1;;
+  shift
+done
