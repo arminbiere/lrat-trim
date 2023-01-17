@@ -117,6 +117,7 @@ static void vrb (const char *fmt, ...) {
 }
 
 #define SIZE(STACK) ((STACK).end - (STACK).begin)
+#define CAPACITY(STACK) ((STACK).allocated - (STACK).begin)
 #define FULL(STACK) ((STACK).end == (STACK).allocated)
 
 #define ENLARGE(STACK) \
@@ -128,6 +129,28 @@ static void vrb (const char *fmt, ...) {
       die ("out-of-memory enlarging '" #STACK "' stack"); \
     (STACK).end = (STACK).begin + OLD_CAPACITY; \
     (STACK).allocated = (STACK).begin + NEW_CAPACITY; \
+  } while (0)
+
+#define ADJUST(STACK, NEEDED_SIZE) \
+  do { \
+    size_t OLD_SIZE = SIZE (STACK); \
+    size_t COPY_OF_NEEDED_SIZE = (NEEDED_SIZE); \
+    if (OLD_SIZE < COPY_OF_NEEDED_SIZE) { \
+      size_t OLD_CAPACITY = CAPACITY (STACK); \
+      if (OLD_CAPACITY < COPY_OF_NEEDED_SIZE) { \
+        size_t NEW_CAPACITY = OLD_CAPACITY ? 2 * OLD_CAPACITY : 1; \
+        while (NEW_CAPACITY < COPY_OF_NEEDED_SIZE) \
+          NEW_CAPACITY *= 2; \
+        void *OLD_BEGIN = (STACK).begin; \
+        void *NEW_BEGIN = calloc (NEW_CAPACITY, sizeof *(STACK).begin); \
+        if (!NEW_BEGIN) \
+          die ("out-of-memory adjusting '" #STACK "' stack"); \
+	free (OLD_BEGIN); \
+        (STACK).begin = NEW_BEGIN; \
+        (STACK).allocated = (STACK).begin + NEW_CAPACITY; \
+      } \
+      (STACK).end = (STACK).begin + COPY_OF_NEEDED_SIZE; \
+    } \
   } while (0)
 
 #define PUSH(STACK, DATA) \
@@ -331,12 +354,12 @@ int main (int argc, char **argv) {
               free (old_begin);
               deleted.end = deleted.begin + new_size;
             }
-	    size_t * deleted_pointer = deleted.begin + other;
+            size_t *deleted_pointer = deleted.begin + other;
             size_t deleted_before = *deleted_pointer;
             if (deleted_before)
-              err ("clause[%d] already deleted in line %zu",
-                   other, deleted_before);
-	    *deleted_pointer = input.lines + 1;
+              err ("clause[%d] already deleted in line %zu", other,
+                   deleted_before);
+            *deleted_pointer = input.lines + 1;
           }
           last = other;
         } else {
@@ -349,10 +372,16 @@ int main (int argc, char **argv) {
       if (id == last_id)
         err ("line identifier '%d' of addition line does not increase", id);
       line.end = line.begin;
-      PUSH (line, id);
       while ((ch = read_char ()) != '\n')
         if (ch == EOF)
           err ("unexpected end-of-file in clause addition line");
+      // TODO parse literals.
+      // TODO parse antecedents.
+      // TODO copy to actual clause.
+      int * c = 0;
+      ADJUST (clauses, id + 1);
+      clauses.begin[id] = c;
+      debug_clause (c, "added");
       if (!min_added) {
         debug ("first added clauses clause[%d]", id);
         min_added = id;
