@@ -210,11 +210,11 @@ int main (int argc, char **argv) {
     if (ch == EOF)
       break;
     if (!isdigit (ch))
-      err ("expected digit as first character");
+      err ("expected digit as first character of line");
+    if (ch == '0')
+      err ("expected non-zero digit as first character of line");
     int id = (ch - '0');
     while (isdigit (ch = read_char ())) {
-      if (!id)
-        err ("unexpected second digit '%c' after '0'", ch);
       if (INT_MAX / 10 < id)
         err ("line identifier exceeds 'INT_MAX'");
       id *= 10;
@@ -224,7 +224,7 @@ int main (int argc, char **argv) {
       id += digit;
     }
     if (ch != ' ')
-      err ("expected space after '%d'", id);
+      err ("expected space after line identifier '%d'", id);
     if (id < last_id)
       err ("line identifier '%d' smaller than last '%d'", id, last_id);
     ch = read_char ();

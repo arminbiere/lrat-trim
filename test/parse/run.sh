@@ -30,6 +30,11 @@ run () {
 
 run creof
 run nodigitatid
-run zerodigit
+run zeroid
 run idtoobig1
 run idtoobig2
+run idnospace
+run dnospace
+run deof
+run addeof1
+run addeof2
