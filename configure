@@ -8,7 +8,7 @@ where '<option>' is one of the following
 
    -c    enable assertion checking (implied by '-g')
    -g    debugging build (implies '-s' and '-c')
-   -h    print usage information
+   -h    print this command line option summary
    -s    compile with symbols  (implied by '-g')
 EOF
 }
@@ -39,4 +39,4 @@ COMPILE="gcc -Wall"
 [ $check = no ] && COMPILE="$COMPILE -DNDEBUG"
 
 echo "configure: $COMPILE"
-sed -e "s#@COMPILE@#$COMPILED#" makefile.in > makefile
+sed -e "s#@COMPILE@#$COMPILE#" makefile.in > makefile
