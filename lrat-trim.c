@@ -239,7 +239,7 @@ int main (int argc, char **argv) {
           err ("unexpected end-of-file in clause deletion line");
     } else {
       if (id == last_id)
-        err ("line identifier of clause addition line does not increase");
+        err ("line identifier '%d' of addition line does not increase", id);
       line.end = line.begin;
       while ((ch = read_char ()) != '\n')
         if (ch == EOF)
@@ -250,7 +250,7 @@ int main (int argc, char **argv) {
   if (input.close)
     fclose (input.file);
   if (!empty)
-    die ("not empty clause added in '%s'", input.path);
+    die ("no empty clause added in '%s'", input.path);
 
   vrb ("read %zu lines %.0f MB", input.lines,
        input.bytes / (double)(1 << 20));

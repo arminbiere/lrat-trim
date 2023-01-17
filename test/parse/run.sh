@@ -38,3 +38,6 @@ run dnospace
 run deof
 run addeof1
 run addeof2
+run addnoinc
+run delnoinc
+run empty
