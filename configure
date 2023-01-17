@@ -6,15 +6,20 @@ usage: configure [ <option> ... ]
 
 where '<option>' is one of the following
 
-   -c    enable assertion checking (implied by '-g')
-   -g    debugging build (implies '-s' and '-c')
-   -h    print this command line option summary
-   -s    compile with symbols  (implied by '-g')
+  -c    enable assertion checking (implied by '-g')
+  -g    debugging build (implies '-s' and '-c')
+  -h    print this command line option summary
+  -l    compile with logging support (implied by '-g')
+  -s    compile with symbols (implied by '-g')
+
+and without any option full optimization is assumed.
 EOF
 }
 
-check=unknown
 debug=no
+
+check=unknown
+logging=unknown
 symbols=unknown
 
 while [ $# -gt 0 ]
@@ -23,6 +28,7 @@ do
     -c) check=yes;;
     -g) debug=yes;;
     -h) usage; exit 0;;
+    -l) logging=yes;;
     -s) symbols=yes;;
     *) echo "configure: error: invalid option '$1'" 1>&2; exit 1;;
   esac
@@ -32,10 +38,12 @@ done
 COMPILE="gcc -Wall"
 
 [ $check = unknown ] && check=$debug
+[ $logging = unknown ] && logging=$debug
 [ $symbols = unknown ] && symbols=$debug
 
 [ $symbols = yes ] && COMPILE="$COMPILE -g"
 [ $debug = no ] && COMPILE="$COMPILE -O3"
+[ $logging = yes ] && COMPILE="$COMPILE -DLOGGING"
 [ $check = no ] && COMPILE="$COMPILE -DNDEBUG"
 
 echo "configure: $COMPILE"

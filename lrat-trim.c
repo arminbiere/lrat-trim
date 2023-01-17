@@ -6,8 +6,11 @@ static const char * usage =
 "where '<option>' is one of the following:\n"
 "\n"
 "  -h   print this command line option summary\n"
+#ifdef LOGGING
+"  -l   print all messages including logging messages\n"
+#endif
+"  -q   do not print any messages (be quiet)\n" 
 "  -v   enable verbose messages\n"
-"  -q   no messages (quiet)\n" 
 "\n"
 "The input proof in LRAT format is parsed, trimmed and then written to the\n"
 "output file if the latter is specified.\n"
@@ -38,25 +41,34 @@ struct file input, output;
 
 static int verbosity;
 
-static void die (const char *, ...) __attribute__ ((format (printf, 1, 2)));
-static void err (const char *, ...) __attribute__ ((format (printf, 1, 2)));
-static void msg (const char *, ...) __attribute__ ((format (printf, 1, 2)));
-static void vrb (const char *, ...) __attribute__ ((format (printf, 1, 2)));
+#if 0
 
 struct char_stack {
   char *begin, *end, *allocated;
 };
 
+#endif
+
 struct int_stack {
   char *begin, *end, *allocated;
+};
+
+struct size_map {
+  size_t *begin, *end;
 };
 
 struct ints_stack {
   int **begin, **end, **allocated;
 };
 
-static struct int_stack line, last, clauses;
-static struct ints_stack lines;
+static struct int_stack line;
+static struct ints_stack clauses;
+static struct size_map deleted;
+
+static void die (const char *, ...) __attribute__ ((format (printf, 1, 2)));
+static void err (const char *, ...) __attribute__ ((format (printf, 1, 2)));
+static void msg (const char *, ...) __attribute__ ((format (printf, 1, 2)));
+static void vrb (const char *, ...) __attribute__ ((format (printf, 1, 2)));
 
 static void die (const char *fmt, ...) {
   fputs ("lrat-trim: error: ", stderr);
@@ -83,8 +95,8 @@ static void err (const char *fmt, ...) {
 static void msg (const char *fmt, ...) {
   if (verbosity < 0)
     return;
-  va_list ap;
   fputs ("c ", stdout);
+  va_list ap;
   va_start (ap, fmt);
   vprintf (fmt, ap);
   va_end (ap);
@@ -95,8 +107,8 @@ static void msg (const char *fmt, ...) {
 static void vrb (const char *fmt, ...) {
   if (verbosity < 1)
     return;
-  va_list ap;
   fputs ("c ", stdout);
+  va_list ap;
   va_start (ap, fmt);
   vprintf (fmt, ap);
   va_end (ap);
@@ -109,12 +121,10 @@ static void vrb (const char *fmt, ...) {
 
 #define ENLARGE(STACK) \
   do { \
-    assert (FULL (STACK)); \
     size_t OLD_CAPACITY = SIZE (STACK); \
     size_t NEW_CAPACITY = OLD_CAPACITY ? 2 * OLD_CAPACITY : 1; \
     size_t NEW_BYTES = NEW_CAPACITY * sizeof *(STACK).begin; \
-    (STACK).begin = realloc ((STACK).begin, NEW_BYTES); \
-    if (!(STACK).begin) \
+    if (!((STACK).begin = realloc ((STACK).begin, NEW_BYTES))) \
       die ("out-of-memory enlarging '" #STACK "' stack"); \
     (STACK).end = (STACK).begin + OLD_CAPACITY; \
     (STACK).allocated = (STACK).begin + NEW_CAPACITY; \
@@ -127,12 +137,56 @@ static void vrb (const char *fmt, ...) {
     *(STACK).end++ = (DATA); \
   } while (0)
 
+#ifdef LOGGING
+
+static int logging () { return verbosity == INT_MAX; }
+
+static void debug (const char *, ...)
+    __attribute__ ((format (printf, 1, 2)));
+
+static void debug_clause (int *, const char *, ...)
+    __attribute__ ((format (printf, 2, 3)));
+
+static void debug (const char *fmt, ...) {
+  if (!logging ())
+    return;
+  fputs ("c LOGGING ", stdout);
+  va_list ap;
+  va_start (ap, fmt);
+  vprintf (fmt, ap);
+  va_end (ap);
+  fputc ('\n', stdout);
+  fflush (stdout);
+}
+
+static void debug_clause (int *c, const char *fmt, ...) {
+  assert (c);
+  if (!logging ())
+    return;
+  fputs ("c ", stdout);
+  va_list ap;
+  va_start (ap, fmt);
+  vprintf (fmt, ap);
+  va_end (ap);
+  printf (" clause[%d]", *c);
+  int *p = c + 1, tmp;
+  while ((tmp = *p++))
+    printf (" %d", tmp);
+  fputs (" 0", stdout);
+  while ((tmp = *p++))
+    printf (" %d", tmp);
+  fputs (" 0\n", stdout);
+  fflush (stdout);
+}
+
+#endif
+
 static inline int read_char (void) {
   int res = getc_unlocked (input.file);
   if (res == '\r') {
     res = getc_unlocked (input.file);
     if (res != '\n')
-      err ("carriage return without new-line");
+      err ("carriage-return without following new-line");
   }
   if (res == '\n')
     input.lines++;
@@ -173,11 +227,14 @@ int main (int argc, char **argv) {
     if (!strcmp (arg, "-h")) {
       fputs (usage, stdout);
       exit (0);
-    } else if (!strcmp (arg, "-q"))
+    } else if (!strcmp (arg, "-l"))
+      verbosity = INT_MAX;
+    else if (!strcmp (arg, "-q"))
       verbosity = -1;
-    else if (!strcmp (arg, "-v"))
-      verbosity = 1;
-    else if (arg[0] == '-' && arg[1])
+    else if (!strcmp (arg, "-v")) {
+      if (verbosity <= 0)
+        verbosity = 1;
+    } else if (arg[0] == '-' && arg[1])
       die ("invalid option '%s' (try '-h')", arg);
     else if (output.path)
       die ("too many arguments '%s', '%s' and '%s'", input.path,
@@ -204,7 +261,7 @@ int main (int argc, char **argv) {
   else
     input.close = 1;
   msg ("reading '%s'", input.path);
-  int ch, empty = 0, last_id = 0;
+  int ch, empty = 0, last_id = 0, min_added = 0;
   for (;;) {
     ch = read_char ();
     if (ch == EOF)
@@ -232,18 +289,74 @@ int main (int argc, char **argv) {
       ch = read_char ();
       if (ch != ' ')
         err ("expected space after 'd'");
-      id = -1;
-      line.end = line.begin;
-      while ((ch = read_char ()) != '\n')
-        if (ch == EOF)
-          err ("unexpected end-of-file in clause deletion line");
+      assert (id != INT_MIN);
+      PUSH (line, -id);
+      int last = 0;
+      for (;;) {
+        ch = read_char ();
+        if (!isdigit (ch)) {
+          if (last)
+            err ("expected digit after '%d '", last);
+          else
+            err ("expected digit after 'd '");
+        }
+        int other = ch - '0';
+        while (isdigit ((ch = read_char ()))) {
+          if (!other)
+            err ("unexpected digit '%c' after '0'", ch);
+          if (INT_MAX / 10 < other)
+            err ("deleted clause identifier exceeds 'INT_MAX'");
+          other *= 10;
+          int digit = (ch - '0');
+          if (INT_MAX - digit < other)
+            err ("deleted clause identifier exceeds 'INT_MAX'");
+          other += digit;
+        }
+        if (other) {
+          if (ch != ' ')
+            err ("expected space after '%d'", other);
+          if (other > id)
+            err ("deleted clause identifier '%d' "
+                 "large than line identifier '%d'",
+                 other, id);
+          if (other >= min_added) {
+            size_t old_size = SIZE (deleted);
+            if ((size_t)other < old_size) {
+              size_t new_size = old_size ? 2 * old_size : 1;
+              while ((size_t)other <= new_size)
+                new_size *= 2;
+              size_t *old_begin = deleted.begin;
+              if (!(deleted.begin = calloc (new_size, sizeof (size_t))))
+                die ("out-of-memory reallocating deleted table");
+              free (old_begin);
+              deleted.end = deleted.begin + new_size;
+            }
+	    size_t * deleted_pointer = deleted.begin + other;
+            size_t deleted_before = *deleted_pointer;
+            if (deleted_before)
+              err ("clause[%d] already deleted in line %zu",
+                   other, deleted_before);
+	    *deleted_pointer = input.lines + 1;
+          }
+          last = other;
+        } else {
+          if (ch != '\n')
+            err ("expected new-line after '0' at end of deletion line");
+          break;
+        }
+      }
     } else {
       if (id == last_id)
         err ("line identifier '%d' of addition line does not increase", id);
       line.end = line.begin;
+      PUSH (line, id);
       while ((ch = read_char ()) != '\n')
         if (ch == EOF)
           err ("unexpected end-of-file in clause addition line");
+      if (!min_added) {
+        debug ("first added clauses clause[%d]", id);
+        min_added = id;
+      }
     }
     last_id = id;
   }
@@ -275,12 +388,12 @@ int main (int argc, char **argv) {
   } else
     msg ("no output file specified");
 
-  free (last.begin);
-  free (clauses.begin);
-  for (int **p = lines.begin; p != lines.end; p++)
+  for (int **p = clauses.begin; p != clauses.end; p++)
     if (*p)
       free (*p);
-  free (lines.begin);
+  free (clauses.begin);
+
+  free (deleted.begin);
 
   msg ("trimmed %9zu addition lines to %9zu lines %3.0f%%", input.added,
        output.added, percent (output.added, input.added));
@@ -290,9 +403,9 @@ int main (int argc, char **argv) {
        output.lines, percent (output.lines, input.lines));
 
   if (output.path)
-  msg ("trimmed %9.0f MB             to %9.0f MB    %3.0f%%",
-       input.bytes / (double)(1 << 20), output.bytes / (double)(1 << 20),
-       percent (output.bytes, input.bytes));
+    msg ("trimmed %9.0f MB             to %9.0f MB    %3.0f%%",
+         input.bytes / (double)(1 << 20), output.bytes / (double)(1 << 20),
+         percent (output.bytes, input.bytes));
 
   msg ("used %.2f seconds and %.0f MB", process_time (), mega_bytes ());
 
