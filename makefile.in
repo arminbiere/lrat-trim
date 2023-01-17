@@ -4,4 +4,9 @@ lrat-trim: lrat-trim.c makefile
 	$(COMPILE) -o $@ $<
 clean:
 	rm -f lrat-trim makefile
-.PHONY: all clean
+	rm -f test/*/*.log test/*/*.err
+format:
+	clang-format *.c
+test: lrat-trim
+	test/parse/run.sh
+.PHONY: all clean format test
