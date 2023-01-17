@@ -1,0 +1,7 @@
+COMPILE=@COMPILE@
+all: lrat-trim
+lrat-trim: lrat-trim.c makefile
+	$(COMPILE) -o $@ $<
+clean:
+	rm -f lrat-trim makefile
+.PHONY: all clean
