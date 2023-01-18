@@ -6,8 +6,7 @@ clean:
 	rm -f lrat-trim makefile
 	rm -f test/*/*.log test/*/*.err
 	rm lrat-trim.gcda lrat-trim.gcno lrat-trim.c.gcov
-coverage: lrat-trim
-	make test
+coverage: test
 	gcov lrat-trim.c
 format:
 	clang-format lrat-trim.c

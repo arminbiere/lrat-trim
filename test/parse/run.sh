@@ -29,6 +29,8 @@ run () {
 
 run addeof1
 run addeof2
+run addlitoobig1
+run addlitoobig2
 run addnodigafterlitsign
 run addnoinc
 run addzeroafterlitsign
@@ -52,11 +54,11 @@ run nodigitatid
 run zeroid
 run addlitdoublezero
 
-runs=`grep '^run [a-z]' $0|wc -l`
+runs=`grep '^run [a-z]' run.sh|wc -l`
 logs=`ls *.log|wc -l`
 errs=`ls *.err|wc -l`
 lrats=`ls *lrat|wc -l`
 
-[ $runs = $logs ] || die "found $runs but $logs '.log' files"
-[ $runs = $errs ] || die "found $runs but $errs '.err' files"
-[ $runs = $lrats ] || die "found $runs but $lrats '.lrat' files"
+[ $runs = $logs ] || die "found $runs runs in './run.sh' but $logs '.log' files"
+[ $runs = $errs ] || die "found $runs runs in './run.sh' but $errs '.err' files"
+[ $runs = $lrats ] || die "found $runs runs in './run.sh' but $lrats '.lrat' files"

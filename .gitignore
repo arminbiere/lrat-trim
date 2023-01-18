@@ -1,2 +1,5 @@
-lrat-trim
 makefile
+lrat-trim
+lrat-trim.gcda
+lrat-trim.gcno
+lrat-trim.c.gcov

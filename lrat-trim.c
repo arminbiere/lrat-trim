@@ -509,6 +509,12 @@ int main (int argc, char **argv) {
         memcpy (l, line.begin, bytes_literals);
         ADJUST (literals, needed_clauses_size);
         literals.begin[id] = l;
+	if (size_literals == 1) {
+	  if (!empty) {
+	    vrb ("found empty clause %d", id);
+	    empty = id;
+	  }
+	}
       }
       CLEAR (line);
       assert (!last);
