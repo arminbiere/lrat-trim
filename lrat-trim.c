@@ -32,17 +32,14 @@ struct file {
   FILE *file;
   size_t bytes;
   size_t lines;
-  size_t added;
-  size_t deleted;
-  int binary;
   int close;
 };
 
 struct lines {
-  size_t count;
   size_t added;
   size_t deleted;
-} lines;
+  size_t total;
+};
 
 struct bool_stack {
   bool *begin, *end, *allocated;
@@ -65,9 +62,15 @@ struct deletion_map {
   struct deletion *begin, *end;
 };
 
+struct statistics {
+  struct lines original, trimmed;
+};
+
 static struct file input;
 static struct file output;
 static int verbosity;
+
+static struct statistics statistics;
 
 static int min_added;
 static struct int_stack work;
@@ -710,12 +713,15 @@ int main (int argc, char **argv) {
   free (used.begin);
 #endif
 
-  msg ("trimmed %9zu addition lines to %9zu lines %3.0f%%", input.added,
-       output.added, percent (output.added, input.added));
-  msg ("trimmed %9zu deletion lines to %9zu lines %3.0f%%", input.deleted,
-       output.deleted, percent (output.deleted, input.deleted));
-  msg ("trimmed %9zu lines          to %9zu lines %3.0f%%", input.lines,
-       output.lines, percent (output.lines, input.lines));
+  msg ("trimmed %9zu addition lines to %9zu lines %3.0f%%",
+       statistics.original.added, statistics.trimmed.added,
+       percent (statistics.trimmed.added, statistics.original.added));
+  msg ("trimmed %9zu deletion lines to %9zu lines %3.0f%%",
+       statistics.original.deleted, statistics.trimmed.deleted,
+       percent (statistics.trimmed.deleted, statistics.original.deleted));
+  msg ("trimmed %9zu lines          to %9zu lines %3.0f%%",
+       statistics.original.total, statistics.trimmed.total,
+       percent (statistics.trimmed.total, statistics.original.total));
 
   if (output.path)
     msg ("trimmed %9.0f MB             to %9.0f MB    %3.0f%%",
