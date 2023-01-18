@@ -601,18 +601,21 @@ int main (int argc, char **argv) {
           other += digit;
         }
         int signed_other = sign * other;
-        if (other >= id)
-          err ("antecedent '%d' in clause %d exceeds clause",
-	       signed_other, id);
-        if (!has_been_added (other))
-          err ("antecedent '%d' in clause %d "
-               "is neither an original clause nor has been added",
-               signed_other, id);
-        if (other && ch != ' ')
-          err ("expected space after antecedent '%d' in clause %d",
-               signed_other, id);
-        if (!other && ch != '\n')
-          err ("expected new-line after '0' at end of clause %d", id);
+        if (other) {
+          if (ch != ' ')
+            err ("expected space after antecedent '%d' in clause %d",
+                 signed_other, id);
+          if (other >= id)
+            err ("antecedent '%d' in clause %d exceeds clause",
+                 signed_other, id);
+          if (!has_been_added (other))
+            err ("antecedent '%d' in clause %d "
+                 "is neither an original clause nor has been added",
+                 signed_other, id);
+        } else {
+          if (ch != '\n')
+            err ("expected new-line after '0' at end of clause %d", id);
+        }
         PUSH (work, signed_other);
         last = signed_other;
       } while (last);
