@@ -38,10 +38,6 @@ struct file {
   int close;
 };
 
-struct file input, output;
-
-static int verbosity;
-
 struct int_stack {
   int *begin, *end, *allocated;
 };
@@ -49,13 +45,6 @@ struct int_stack {
 struct ints_map {
   int **begin, **end;
 };
-
-#if 0
-
-struct size_map {
-  size_t *begin, *end;
-};
-#endif
 
 struct deletion {
   size_t line;
@@ -78,8 +67,11 @@ struct link_map {
 
 #endif
 
-static struct int_stack line;
+struct file input;
+struct file output;
+static int verbosity;
 
+static struct int_stack line;
 static struct ints_map literals;
 static struct ints_map antecedents;
 static struct deletion_map deleted;
@@ -385,30 +377,24 @@ int main (int argc, char **argv) {
       ch = read_char ();
       if (ch != ' ')
         err ("expected space after '%d d'", id);
-      assert (id != INT_MIN);
-      PUSH (line, -id);
       assert (EMPTY (line));
       int last = 0;
       do {
         ch = read_char ();
         if (!isdigit (ch)) {
           if (last)
-            err ("expected digit after '%d ' "
-                 "in deletion line with identifier %d",
-                 last, id);
+            err ("expected digit after '%d ' in deletion %d", last, id);
           else
             err ("expected digit after '%d d ' ", id);
         }
         int other = ch - '0';
         while (isdigit ((ch = read_char ()))) {
           if (!other)
-            err ("unexpected digit '%c' after '0' "
-                 "in deletion line with identifier %d",
-                 ch, id);
+            err ("unexpected digit '%c' after '0' in deletion %d", ch, id);
           if (INT_MAX / 10 < other)
           DELETED_CLAUSE_IDENTIFIER_EXCEEDS_INT_MAX:
             err ("deleted clause identifier '%s' exceeds 'INT_MAX' "
-                 "in deletion line with identifier %d",
+                 "in deletion %d",
                  exceeds_int_max (other, ch), id);
           other *= 10;
           int digit = (ch - '0');
@@ -420,52 +406,50 @@ int main (int argc, char **argv) {
         }
         if (other) {
           if (ch != ' ')
-            err ("expected space after '%d' "
-                 "in deletion line with identifier %d",
-                 other, id);
+            err ("expected space after '%d' in deletion %d", other, id);
           if (other > id)
             err ("deleted clause identifier '%d' "
-                 "larger than deletion line identifier '%d'",
+                 "larger than deletion identifier '%d'",
                  other, id);
           size_t needed_clauses_size = other + 1;
           ADJUST (deleted, needed_clauses_size);
           struct deletion *d = deleted.begin + other;
           if (d->id) {
             assert (d->line);
-            err ("clause %d requested to be deleted in deletion line "
-                 "with identifier %d was already deleted in deletion "
-                 "line with identifier %d at line %zu",
+            err ("clause %d requested to be deleted in deletion %d "
+                 "was already deleted in deletion %d at line %zu",
                  other, id, d->id, d->line);
           }
           size_t deleted_line = input.lines + 1;
-          dbg ("marked clause %d to be deleted at line %zu "
-               "in deletion line with identifier %d",
+          dbg ("marked clause %d to be deleted at line %zu in deletion %d",
                other, deleted_line, id);
           d->line = deleted_line;
           d->id = id;
         } else if (ch != '\n')
-          err ("expected new-line after '0' "
-               "at end of deletion line with identifier %d",
-               id);
+          err ("expected new-line after '0' at end of deletion %d", id);
 #if !defined(NDEBUG) || defined(LOGGING)
         PUSH (line, other);
 #endif
         last = other;
       } while (last);
 #if !defined(NDEBUG) || defined(LOGGING)
-      dbgs (line.begin, "parsed deletion line with identifier %d "
-                        "and deleted clauses");
+      dbgs (line.begin, "parsed deletion %d and deleted clauses");
       CLEAR (line);
 #endif
     } else {
       if (id == last_id)
         err ("line identifier '%d' of addition line does not increase", id);
       assert (EMPTY (line));
+      bool first = true;
       int last = id;
       assert (last);
       while (last) {
         int sign;
-        if ((ch = read_char ()) == '-') {
+        if (first)
+          first = false;
+        else
+          ch = read_char ();
+        if (ch == '-') {
           if (!isdigit (ch = read_char ()))
             err ("expected digit after '%d -' in clause %d", last, id);
           if (ch == '0')
@@ -508,6 +492,7 @@ int main (int argc, char **argv) {
         PUSH (line, lit);
         last = lit;
       }
+      dbgs (line.begin, "clause %d literals", id);
       size_t needed_clauses_size = id + 1;
       {
         size_t size_literals = SIZE (line);
@@ -572,6 +557,7 @@ int main (int argc, char **argv) {
         PUSH (line, signed_other);
         last = signed_other;
       } while (last);
+      dbgs (line.begin, "clause %d antecedents", id);
       {
         size_t size_antecedents = SIZE (line);
         size_t bytes_antecedents = size_antecedents * sizeof (int);
@@ -589,7 +575,7 @@ int main (int argc, char **argv) {
       }
       ADJUST (deleted, needed_clauses_size);
       if (!min_added) {
-        vrb ("found first added clause %d", id);
+        vrb ("added first clause %d", id);
         min_added = id;
       }
     }
@@ -597,8 +583,6 @@ int main (int argc, char **argv) {
   }
   if (input.close)
     fclose (input.file);
-  if (!empty)
-    die ("no empty clause added in '%s'", input.path);
 
   vrb ("read %zu lines %.0f MB", input.lines,
        input.bytes / (double)(1 << 20));
@@ -606,9 +590,8 @@ int main (int argc, char **argv) {
   vrb ("parsing finished in %.2f seconds and used %.0f MB", process_time (),
        mega_bytes ());
 
-#ifndef NDEBUG
-  free (line.begin);
-#endif
+  if (!empty)
+    die ("no empty clause added in '%s'", input.path);
 
   if (output.path) {
     if (!strcmp (output.path, "-")) {
@@ -629,6 +612,7 @@ int main (int argc, char **argv) {
   release_ints_map (&literals);
   release_ints_map (&antecedents);
   free (deleted.begin);
+  free (line.begin);
 #endif
 
   msg ("trimmed %9zu addition lines to %9zu lines %3.0f%%", input.added,
