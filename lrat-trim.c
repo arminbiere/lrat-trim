@@ -38,6 +38,10 @@ struct file {
   int close;
 };
 
+struct bool_stack {
+  bool *begin, *end, *allocated;
+};
+
 struct int_stack {
   int *begin, *end, *allocated;
 };
@@ -55,26 +59,18 @@ struct deletion_map {
   struct deletion *begin, *end;
 };
 
-#if 0
-
-struct link {
-  int used, next;
-};
-
-struct link_map {
-  struct link *begin, *end;
-};
-
-#endif
-
 struct file input;
 struct file output;
 static int verbosity;
 
-static struct int_stack line;
+static int min_added;
+static struct int_stack work;
+static struct int_stack added;
 static struct ints_map literals;
 static struct ints_map antecedents;
 static struct deletion_map deleted;
+static struct int_stack links;
+static struct int_stack used;
 
 static void die (const char *, ...) __attribute__ ((format (printf, 1, 2)));
 static void err (const char *, ...) __attribute__ ((format (printf, 1, 2)));
@@ -281,6 +277,43 @@ static double mega_bytes (void) {
 
 static double percent (double a, double b) { return b ? a / b : 0; }
 
+static void mark_used (int used_id, int used_now) {
+  assert (0 < used_id);
+  assert (0 < used_now);
+  size_t needed_used_size = (size_t)used_id + 1;
+  ADJUST (used, needed_used_size);
+  int *w = used.begin + used_id;
+  int used_before = *w;
+  if (used_before >= used_now)
+    return;
+  *w = used_now;
+  dbg ("updated clause %d to be used in clause %d", used_id, used_now);
+}
+
+static int marked_used (int used_id) {
+  assert (0 < used_id);
+  if ((size_t)used_id >= SIZE (used))
+    return 0;
+  return used.begin[used_id];
+}
+
+static bool is_original_clause (int id) {
+  assert (0 < id);
+  return !min_added || id < min_added;
+}
+
+static bool marked_added (int used_id) {
+  assert (0 < used_id);
+  if ((size_t)used_id >= SIZE (added))
+    return false;
+  return added.begin[used_id];
+}
+
+static bool has_been_added (int id) {
+  assert (0 < id);
+  return is_original_clause (id) || marked_added (id);
+}
+
 static const char *exceeds_int_max (int n, int ch) {
   static char buffer[32];
   const size_t size = sizeof buffer - 5;
@@ -314,7 +347,11 @@ int main (int argc, char **argv) {
       fputs (usage, stdout);
       exit (0);
     } else if (!strcmp (arg, "-l"))
+#ifdef LOGGING
       verbosity = INT_MAX;
+#else
+      die ("invalid option '-l' (build without logging support)");
+#endif
     else if (!strcmp (arg, "-q"))
       verbosity = -1;
     else if (!strcmp (arg, "-v")) {
@@ -347,7 +384,7 @@ int main (int argc, char **argv) {
   else
     input.close = 1;
   msg ("reading '%s'", input.path);
-  int ch, empty = 0, last_id = 0, min_added = 0;
+  int ch, empty = 0, last_id = 0;
   for (;;) {
     ch = read_char ();
     if (ch == EOF)
@@ -380,7 +417,7 @@ int main (int argc, char **argv) {
       ch = read_char ();
       if (ch != ' ')
         err ("expected space after '%d d' in deletion %d", id, id);
-      assert (EMPTY (line));
+      assert (EMPTY (work));
       int last = 0;
       do {
         ch = read_char ();
@@ -411,10 +448,14 @@ int main (int argc, char **argv) {
           if (ch != ' ')
             err ("expected space after '%d' in deletion %d", other, id);
           if (other > id)
-            err ("deleted clause identifier '%d' "
+            err ("deleted clause '%d' "
                  "larger than deletion identifier '%d'",
                  other, id);
-          size_t needed_clauses_size = other + 1;
+          if (!has_been_added (other))
+            err ("deleted clause '%d' in deletion %d is neither "
+                 "an original clause nor has been added",
+                 other, id);
+          size_t needed_clauses_size = (size_t)other + 1;
           ADJUST (deleted, needed_clauses_size);
           struct deletion *d = deleted.begin + other;
           if (d->id) {
@@ -431,18 +472,22 @@ int main (int argc, char **argv) {
         } else if (ch != '\n')
           err ("expected new-line after '0' at end of deletion %d", id);
 #if !defined(NDEBUG) || defined(LOGGING)
-        PUSH (line, other);
+        PUSH (work, other);
 #endif
         last = other;
       } while (last);
 #if !defined(NDEBUG) || defined(LOGGING)
-      dbgs (line.begin, "parsed deletion %d and deleted clauses");
-      CLEAR (line);
+      dbgs (work.begin, "parsed deletion %d and deleted clauses");
+      CLEAR (work);
 #endif
     } else {
       if (id == last_id)
         err ("line identifier '%d' of addition line does not increase", id);
-      assert (EMPTY (line));
+      if (!min_added) {
+        vrb ("adding first clause %d", id);
+        min_added = id;
+      }
+      assert (EMPTY (work));
       bool first = true;
       int last = id;
       assert (last);
@@ -493,13 +538,13 @@ int main (int argc, char **argv) {
           else
             err ("expected space after literals and '0' in clause %d", id);
         }
-        PUSH (line, lit);
+        PUSH (work, lit);
         last = lit;
       }
-      dbgs (line.begin, "clause %d literals", id);
-      size_t needed_clauses_size = id + 1;
+      dbgs (work.begin, "clause %d literals", id);
+      size_t needed_clauses_size = (size_t)id + 1;
       {
-        size_t size_literals = SIZE (line);
+        size_t size_literals = SIZE (work);
         size_t bytes_literals = size_literals * sizeof (int);
         int *l = malloc (bytes_literals);
         if (!l) {
@@ -507,7 +552,7 @@ int main (int argc, char **argv) {
           die ("out-of-memory allocating literals of size %zu clause %d",
                size_literals - 1, id);
         }
-        memcpy (l, line.begin, bytes_literals);
+        memcpy (l, work.begin, bytes_literals);
         ADJUST (literals, needed_clauses_size);
         literals.begin[id] = l;
         if (size_literals == 1) {
@@ -517,7 +562,7 @@ int main (int argc, char **argv) {
           }
         }
       }
-      CLEAR (line);
+      CLEAR (work);
       assert (!last);
       do {
         int sign;
@@ -541,12 +586,10 @@ int main (int argc, char **argv) {
           if (INT_MAX / 10 < other) {
           ANTECEDENT_IDENTIFIER_EXCEEDS_INT_MAX:
             if (sign < 0)
-              err ("antecedent identifier in '-%s' "
-                   "exceeds 'INT_MAX' in clause %d",
+              err ("antecedent '-%s' exceeds 'INT_MAX' in clause %d",
                    exceeds_int_max (other, ch), id);
             else
-              err ("antecedent identifier '%s' "
-                   "exceeds 'INT_MAX' in clause %d",
+              err ("antecedent '%s' exceeds 'INT_MAX' in clause %d",
                    exceeds_int_max (other, ch), id);
           }
           other *= 10;
@@ -558,17 +601,24 @@ int main (int argc, char **argv) {
           other += digit;
         }
         int signed_other = sign * other;
+        if (other >= id)
+          err ("antecedent '%d' in clause %d exceeds clause",
+	       signed_other, id);
+        if (!has_been_added (other))
+          err ("antecedent '%d' in clause %d "
+               "is neither an original clause nor has been added",
+               signed_other, id);
         if (other && ch != ' ')
           err ("expected space after antecedent '%d' in clause %d",
                signed_other, id);
         if (!other && ch != '\n')
           err ("expected new-line after '0' at end of clause %d", id);
-        PUSH (line, signed_other);
+        PUSH (work, signed_other);
         last = signed_other;
       } while (last);
-      dbgs (line.begin, "clause %d antecedents", id);
+      dbgs (work.begin, "clause %d antecedents", id);
       {
-        size_t size_antecedents = SIZE (line);
+        size_t size_antecedents = SIZE (work);
         size_t bytes_antecedents = size_antecedents * sizeof (int);
         int *a = malloc (bytes_antecedents);
         if (!a) {
@@ -577,16 +627,13 @@ int main (int argc, char **argv) {
                "%d",
                size_antecedents - 1, id);
         }
-        memcpy (a, line.begin, bytes_antecedents);
-        CLEAR (line);
+        memcpy (a, work.begin, bytes_antecedents);
+        CLEAR (work);
         ADJUST (antecedents, needed_clauses_size);
         antecedents.begin[id] = a;
       }
-      ADJUST (deleted, needed_clauses_size);
-      if (!min_added) {
-        vrb ("added first clause %d", id);
-        min_added = id;
-      }
+      ADJUST (added, needed_clauses_size);
+      added.begin[id] = true;
     }
     last_id = id;
   }
@@ -602,9 +649,18 @@ int main (int argc, char **argv) {
   if (!empty)
     die ("no empty clause added in '%s'", input.path);
 
-  // TODO: SPECIFY the various usage modes of the tool through conditions.
-  // TODO what about checking (during parsing?).
-  // TODO actual trimming comes here.
+  assert (EMPTY (work));
+  mark_used (empty, empty);
+  PUSH (work, empty);
+  size_t next = 0;
+  while (next < SIZE (work)) {
+    unsigned id = work.begin[next++];
+    if (id < min_added)
+      continue; // As we do not have a CNF yet.
+    assert (marked_used (id));
+    int *a = antecedents.begin[id];
+    assert (a);
+  }
 
   if (output.path) {
     // TODO what about new deletion lines (with links).
@@ -624,10 +680,13 @@ int main (int argc, char **argv) {
     msg ("no output file specified");
 
 #ifndef NDEBUG
+  free (work.begin);
+  free (added.begin);
   release_ints_map (&literals);
   release_ints_map (&antecedents);
   free (deleted.begin);
-  free (line.begin);
+  free (links.begin);
+  free (used.begin);
 #endif
 
   msg ("trimmed %9zu addition lines to %9zu lines %3.0f%%", input.added,
