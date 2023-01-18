@@ -28,16 +28,23 @@ run () {
   fi
 }
 
-run creof
-run nodigitatid
-run zeroid
-run idtoobig1
-run idtoobig2
-run idnospace
-run dnospace
-run deof
 run addeof1
 run addeof2
 run addnoinc
+run creof
+run delnodigit1
+run delnodigit2
 run delnoinc
+run deltoobig1
+run deltoobig2
+run deltoobig3
+run deltwice
+run delunexpdig
+run deof
+run dnospace
 run empty
+run idnospace
+run idtoobig1
+run idtoobig2
+run nodigitatid
+run zeroid

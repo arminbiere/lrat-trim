@@ -12,6 +12,9 @@ where '<option>' is one of the following
   -l    compile with logging support (implied by '-g')
   -s    compile with symbols (implied by '-g')
 
+  --coverage   include code to generate coverage with 'gcov'
+  --sanitize   sanitize for memory access and undefined behavior
+
 and without any option full optimization is assumed.
 EOF
 }
@@ -19,7 +22,9 @@ EOF
 debug=no
 
 check=unknown
+coverage=no
 logging=unknown
+sanitize=no
 symbols=unknown
 
 while [ $# -gt 0 ]
@@ -30,6 +35,8 @@ do
     -h) usage; exit 0;;
     -l) logging=yes;;
     -s) symbols=yes;;
+    --coverage) coverage=yes;;
+    --sanitize) sanitize=yes;;
     *) echo "configure: error: invalid option '$1'" 1>&2; exit 1;;
   esac
   shift
@@ -42,6 +49,8 @@ COMPILE="gcc -Wall"
 [ $symbols = unknown ] && symbols=$debug
 
 [ $symbols = yes ] && COMPILE="$COMPILE -g"
+[ $coverage = yes ] && COMPILE="$COMPILE -ftest-coverage -fprofile-arcs"
+[ $sanitize = yes ] && COMPILE="$COMPILE -fsanitize=address,undefined"
 [ $debug = no ] && COMPILE="$COMPILE -O3"
 [ $logging = yes ] && COMPILE="$COMPILE -DLOGGING"
 [ $check = no ] && COMPILE="$COMPILE -DNDEBUG"

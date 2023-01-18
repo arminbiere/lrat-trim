@@ -5,8 +5,12 @@ lrat-trim: lrat-trim.c makefile
 clean:
 	rm -f lrat-trim makefile
 	rm -f test/*/*.log test/*/*.err
+	rm lrat-trim.gcda lrat-trim.gcno lrat-trim.c.gcov
+coverage: lrat-trim
+	make test
+	gcov lrat-trim.c
 format:
-	clang-format *.c
+	clang-format lrat-trim.c
 test: lrat-trim
 	test/parse/run.sh
-.PHONY: all clean format test
+.PHONY: all clean coverage format test

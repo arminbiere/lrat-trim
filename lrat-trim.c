@@ -283,17 +283,20 @@ static double percent (double a, double b) { return b ? a / b : 0; }
 
 static const char *exceeds_int_max (int n, int ch) {
   static char buffer[32];
-  const size_t size = sizeof buffer - 4;
+  const size_t size = sizeof buffer - 5;
   assert (isdigit (ch));
   sprintf (buffer, "%d", n);
   size_t i = strlen (buffer);
   do {
     assert (i < sizeof buffer);
     buffer[i++] = ch;
-  } while (i + 1 < size && isdigit (ch = read_char ()));
+  } while (i < size && isdigit (ch = read_char ()));
   if (ch == '\n') {
     assert (input.lines);
     input.lines--;
+  }
+  if (i == size) {
+    assert (i + 3 < sizeof buffer);
     buffer[i++] = '.';
     buffer[i++] = '.';
     buffer[i++] = '.';
@@ -369,14 +372,14 @@ int main (int argc, char **argv) {
       id += digit;
     }
     if (ch != ' ')
-      err ("expected space after line identifier '%d'", id);
+      err ("expected space after identifier '%d'", id);
     if (id < last_id)
-      err ("line identifier '%d' smaller than last '%d'", id, last_id);
+      err ("identifier '%d' smaller than last '%d'", id, last_id);
     ch = read_char ();
     if (ch == 'd') {
       ch = read_char ();
       if (ch != ' ')
-        err ("expected space after '%d d'", id);
+        err ("expected space after '%d d' in deletion %d", id, id);
       assert (EMPTY (line));
       int last = 0;
       do {
@@ -385,7 +388,7 @@ int main (int argc, char **argv) {
           if (last)
             err ("expected digit after '%d ' in deletion %d", last, id);
           else
-            err ("expected digit after '%d d ' ", id);
+            err ("expected digit after '%d d ' in deletion %d", id, id);
         }
         int other = ch - '0';
         while (isdigit ((ch = read_char ()))) {
@@ -456,7 +459,7 @@ int main (int argc, char **argv) {
             err ("expected non-zero digit after '%d -'", last);
           sign = -1;
         } else if (!isdigit (ch))
-          err ("expected literal after '%d ' in clause %d", last, id);
+          err ("expected literal or '0' after '%d ' in clause %d", last, id);
         else
           sign = 1;
         int idx = ch - '0';
