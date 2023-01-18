@@ -240,11 +240,11 @@ static void logging_suffix () {
 
 #else
 
-#define dbg() \
+#define dbg(...) \
   do { \
   } while (0)
 
-#define dbgs() \
+#define dbgs(...) \
   do { \
   } while (0)
 
