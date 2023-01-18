@@ -1,3 +1,5 @@
+static const char *version = "0.0.0";
+
 // clang-format off
 
 static const char * usage =
@@ -5,15 +7,18 @@ static const char * usage =
 "\n"
 "where '<option>' is one of the following:\n"
 "\n"
-"  -h   print this command line option summary\n"
+"  -h          print this command line option summary\n"
 #ifdef LOGGING
-"  -l   print all messages including logging messages\n"
+"  -l          print all messages including logging messages\n"
 #endif
-"  -q   do not print any messages (be quiet)\n" 
-"  -v   enable verbose messages\n"
+"  -q          do not print any messages (be quiet)\n" 
+"  -v          enable verbose messages\n"
+"\n"
+"  --version   print version only\n"
 "\n"
 "The input proof in LRAT format is parsed, trimmed and then written to the\n"
-"output file if the latter is specified.\n"
+"output file if the latter is specified.  Otherwise the proof is trimmed\n"
+"in memory and only statistics are produced.\n"
 ;
 
 // clang-format on
@@ -169,30 +174,20 @@ static void vrb (const char *fmt, ...) {
 #define ADJUST(MAP, NEEDED_SIZE) \
   do { \
     size_t OLD_SIZE = SIZE (MAP); \
-    size_t COPY_OF_NEEDED_SIZE = (NEEDED_SIZE); \
-    if (OLD_SIZE < COPY_OF_NEEDED_SIZE) { \
-      if (OLD_SIZE < COPY_OF_NEEDED_SIZE) { \
-        size_t NEW_SIZE = OLD_SIZE ? 2 * OLD_SIZE : 1; \
-        while (NEW_SIZE < COPY_OF_NEEDED_SIZE) \
-          NEW_SIZE *= 2; \
-        void *OLD_BEGIN = (MAP).begin, *NEW_BEGIN; \
-        size_t NEW_BYTES = NEW_SIZE * sizeof *(MAP).begin; \
-        if (OLD_BEGIN) { \
-          size_t OLD_BYTES = OLD_SIZE * sizeof *(MAP).begin; \
-          NEW_BEGIN = realloc (OLD_BEGIN, NEW_BYTES); \
-          if (!NEW_BEGIN) \
-            die ("out-of-memory adjusting '" #MAP "' map"); \
-          size_t DELTA_BYTES = NEW_BYTES - OLD_BYTES; \
-          memset ((char *)NEW_BEGIN + OLD_BYTES, 0, DELTA_BYTES); \
-        } else { \
-          NEW_BEGIN = calloc (NEW_SIZE, sizeof *(MAP).begin); \
-          if (!NEW_BEGIN) \
-            die ("out-of-memory initializing '" #MAP "' map"); \
-        } \
-        (MAP).begin = NEW_BEGIN; \
-        (MAP).end = (MAP).begin + NEW_SIZE; \
-      } \
-      (MAP).end = (MAP).begin + COPY_OF_NEEDED_SIZE; \
+    if (OLD_SIZE >= NEEDED_SIZE) \
+      break; \
+    size_t NEW_SIZE = OLD_SIZE ? 2 * OLD_SIZE : 1; \
+    while (NEW_SIZE < NEEDED_SIZE) \
+      NEW_SIZE *= 2; \
+    void *NEW_BEGIN = calloc (NEW_SIZE, sizeof *(MAP).begin); \
+    if (!NEW_BEGIN) \
+      die ("out-of-memory initializing '" #MAP "' map"); \
+    void *OLD_BEGIN = (MAP).begin; \
+    (MAP).begin = NEW_BEGIN; \
+    (MAP).end = (MAP).begin + NEW_SIZE; \
+    if (OLD_BEGIN) { \
+      size_t OLD_BYTES = OLD_SIZE * sizeof *(MAP).begin; \
+      memcpy (NEW_BEGIN, OLD_BEGIN, OLD_BYTES); \
     } \
   } while (0)
 
@@ -414,7 +409,9 @@ int main (int argc, char **argv) {
     else if (!strcmp (arg, "-v")) {
       if (verbosity <= 0)
         verbosity = 1;
-    } else if (arg[0] == '-' && arg[1])
+    } else if (!strcmp (arg, "--version"))
+      fputs (version, stdout), fputc ('\n', stdout), exit (0);
+    else if (arg[0] == '-' && arg[1])
       die ("invalid option '%s' (try '-h')", arg);
     else if (output.path)
       die ("too many arguments '%s', '%s' and '%s'", input.path,
@@ -734,7 +731,6 @@ int main (int argc, char **argv) {
 
   while (!EMPTY (work)) {
     unsigned id = POP (work);
-    assert (marked_added (id));
     assert (used[id]);
     int *a = antecedents.begin[id];
     assert (a);
