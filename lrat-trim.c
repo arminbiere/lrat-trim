@@ -11,7 +11,7 @@ static const char * usage =
 #ifdef LOGGING
 "  -l          print all messages including logging messages\n"
 #endif
-"  -q          do not print any messages (be quiet)\n" 
+"  -q          be quiet and do not print any messages\n" 
 "  -v          enable verbose messages\n"
 "\n"
 "  --version   print version only\n"
@@ -414,7 +414,7 @@ int main (int argc, char **argv) {
     else if (arg[0] == '-' && arg[1])
       die ("invalid option '%s' (try '-h')", arg);
     else if (output.path)
-      die ("too many arguments '%s', '%s' and '%s'", input.path,
+      die ("too many arguments '%s', '%s' and '%s' (try '-h')", input.path,
            output.path, arg);
     else if (input.path)
       output.path = arg;
@@ -423,11 +423,18 @@ int main (int argc, char **argv) {
   }
 
   if (!input.path)
-    die ("no input proof given");
+    die ("no input proof given (try '-h')");
 
   if (output.path && !strcmp (input.path, output.path) &&
       strcmp (input.path, "-") && strcmp (input.path, "/dev/null"))
     die ("input and output path are both '%s'", input.path);
+
+  if (verbosity >= 0) {
+    printf ("c LRAT-TRIM Version %s trims LRAT proofs\n"
+            "c Copyright (c) 2023 Armin Biere University of Freiburg\n",
+            version);
+    fflush (stdout);
+  }
 
   if (!strcmp (input.path, "-")) {
     input.file = stdin;

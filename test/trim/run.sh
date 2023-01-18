@@ -59,6 +59,13 @@ run () {
 
 run empty
 run bin1
+run full1
+run full2
+run full3
+run full4
+run full5
+run full6
+run full7
 
 runs=`grep '^run [a-z]' run.sh|wc -l`
 logs=`ls *.log|wc -l`
