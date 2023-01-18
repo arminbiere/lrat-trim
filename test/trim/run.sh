@@ -66,6 +66,11 @@ run full4
 run full5
 run full6
 run full7
+run add4
+run add8
+run ph2
+run ph3
+run ph4
 
 runs=`grep '^run [a-z]' run.sh|wc -l`
 logs=`ls *.log|wc -l`
