@@ -35,12 +35,6 @@ struct file {
   int close;
 };
 
-struct lines {
-  size_t added;
-  size_t deleted;
-  size_t total;
-};
-
 struct bool_stack {
   bool *begin, *end, *allocated;
 };
@@ -63,23 +57,30 @@ struct deletion_map {
 };
 
 struct statistics {
-  struct lines original, trimmed;
-};
+  struct {
+    struct {
+      size_t added, deleted;
+    } cnf, proof;
+  } original, trimmed;
+} statistics;
 
 static struct file input;
 static struct file output;
 static int verbosity;
 
-static struct statistics statistics;
+static int *map;
+static int *links;
+static int *heads;
+static int *used;
 
-static int min_added;
+static int empty_clause;
+static int first_clause_added_in_proof;
+
 static struct int_stack work;
 static struct int_stack added;
 static struct ints_map literals;
 static struct ints_map antecedents;
 static struct deletion_map deleted;
-static struct int_stack links;
-static struct int_stack used;
 
 static void die (const char *, ...) __attribute__ ((format (printf, 1, 2)));
 static void err (const char *, ...) __attribute__ ((format (printf, 1, 2)));
@@ -155,6 +156,8 @@ static void vrb (const char *fmt, ...) {
       ENLARGE (STACK); \
     *(STACK).end++ = (DATA); \
   } while (0)
+
+#define POP(STACK) (assert (!EMPTY (STACK)), *--(STACK).end)
 
 #define CLEAR(STACK) \
   do { \
@@ -296,38 +299,37 @@ static double mega_bytes (void) {
   return maximum_resident_set_size () / (double)(1 << 20);
 }
 
-static double percent (double a, double b) { return b ? a / b : 0; }
-
-static void mark_used (int used_id, int used_now) {
-  assert (0 < used_id);
-  assert (0 < used_now);
-  size_t needed_used_size = (size_t)used_id + 1;
-  ADJUST (used, needed_used_size);
-  int *w = used.begin + used_id;
-  int used_before = *w;
-  if (used_before >= used_now)
-    return;
-  *w = used_now;
-  dbg ("updated clause %d to be used in clause %d", used_id, used_now);
-}
-
-static int marked_used (int used_id) {
-  assert (0 < used_id);
-  if ((size_t)used_id >= SIZE (used))
-    return 0;
-  return used.begin[used_id];
-}
+static double average (double a, double b) { return b ? a / b : 0; }
+static double percent (double a, double b) { return average (100 * a, b); }
 
 static bool is_original_clause (int id) {
   assert (0 < id);
-  return !min_added || id < min_added;
+  return !first_clause_added_in_proof || id < first_clause_added_in_proof;
 }
 
-static bool marked_added (int used_id) {
-  assert (0 < used_id);
-  if ((size_t)used_id >= SIZE (added))
+static bool mark_used (int id, int used_where) {
+  assert (0 < id);
+  assert (0 < used_where);
+  int *w = used + id;
+  int used_before = *w;
+  if (used_before >= used_where)
+    return true;
+  *w = used_where;
+  dbg ("updated clause %d to be used in clause %d", id, used_where);
+  if (used_before)
+    return true;
+  if (is_original_clause (id))
+    statistics.trimmed.cnf.added++;
+  else
+    statistics.trimmed.proof.added++;
+  return false;
+}
+
+static bool marked_added (int id) {
+  assert (0 < id);
+  if (id >= SIZE (added))
     return false;
-  return added.begin[used_id];
+  return added.begin[id];
 }
 
 static bool has_been_added (int id) {
@@ -405,7 +407,7 @@ int main (int argc, char **argv) {
   else
     input.close = 1;
   msg ("reading '%s'", input.path);
-  int ch, empty = 0, last_id = 0;
+  int ch, last_id = 0;
   for (;;) {
     ch = read_char ();
     if (ch == EOF)
@@ -490,6 +492,10 @@ int main (int argc, char **argv) {
                other, deleted_line, id);
           d->line = deleted_line;
           d->id = id;
+          if (is_original_clause (id))
+            statistics.original.cnf.deleted++;
+          else
+            statistics.original.proof.deleted++;
         } else if (ch != '\n')
           err ("expected new-line after '0' at end of deletion %d", id);
 #if !defined(NDEBUG) || defined(LOGGING)
@@ -500,13 +506,15 @@ int main (int argc, char **argv) {
 #if !defined(NDEBUG) || defined(LOGGING)
       dbgs (work.begin, "parsed deletion %d and deleted clauses", id);
       CLEAR (work);
-#endif
+#endif 
     } else {
       if (id == last_id)
         err ("line identifier '%d' of addition line does not increase", id);
-      if (!min_added) {
+      if (!first_clause_added_in_proof) {
         vrb ("adding first clause %d", id);
-        min_added = id;
+        first_clause_added_in_proof = id;
+        if (!statistics.original.cnf.added)
+          statistics.original.cnf.added = id - 1;
       }
       assert (EMPTY (work));
       bool first = true;
@@ -577,9 +585,9 @@ int main (int argc, char **argv) {
         ADJUST (literals, needed_clauses_size);
         literals.begin[id] = l;
         if (size_literals == 1) {
-          if (!empty) {
+          if (!empty_clause) {
             vrb ("found empty clause %d", id);
-            empty = id;
+            empty_clause = id;
           }
         }
       }
@@ -658,11 +666,15 @@ int main (int argc, char **argv) {
       }
       ADJUST (added, needed_clauses_size);
       added.begin[id] = true;
+      statistics.original.proof.added++;
     }
     last_id = id;
   }
   if (input.close)
     fclose (input.file);
+
+  free (added.begin);
+  free (deleted.begin);
 
   vrb ("read %zu lines %.0f MB", input.lines,
        input.bytes / (double)(1 << 20));
@@ -670,20 +682,72 @@ int main (int argc, char **argv) {
   vrb ("parsing finished in %.2f seconds and used %.0f MB", process_time (),
        mega_bytes ());
 
-  if (!empty)
+  if (!empty_clause)
     die ("no empty clause added in '%s'", input.path);
 
-  assert (EMPTY (work));
-  mark_used (empty, empty);
-  PUSH (work, empty);
-  size_t next = 0;
-  while (next < SIZE (work)) {
-    unsigned id = work.begin[next++];
-    if (id < min_added)
-      continue; // As we do not have a CNF yet.
-    assert (marked_used (id));
-    int *a = antecedents.begin[id];
-    assert (a);
+  {
+    size_t needed_clauses_size = (size_t)empty_clause + 1;
+    used = calloc (needed_clauses_size, sizeof *used);
+    if (!used)
+      die ("out-of-memory allocating used stamps");
+
+    assert (EMPTY (work));
+    mark_used (empty_clause, empty_clause);
+    if (!is_original_clause (empty_clause))
+      PUSH (work, empty_clause);
+
+    while (!EMPTY (work)) {
+      unsigned id = POP (work);
+      assert (marked_added (id));
+      assert (used[id]);
+      int *a = antecedents.begin[id];
+      assert (a);
+      for (int *p = a, other; (other = abs (*p)); p++)
+        if (!mark_used (other, id) && !is_original_clause (other))
+          PUSH (work, other);
+    }
+
+    msg ("trimmed %zu original clauses in CNF to %zu clauses %.0f%%",
+         statistics.original.cnf.added, statistics.trimmed.cnf.added,
+         percent (statistics.trimmed.cnf.added,
+                  statistics.original.cnf.added));
+
+    msg ("trimmed %zu original proof lemmas to %zu clauses %.0f%%",
+         statistics.original.proof.added, statistics.trimmed.proof.added,
+         percent (statistics.trimmed.proof.added,
+                  statistics.original.proof.added));
+
+    free (work.begin);
+
+    {
+      int id = first_clause_added_in_proof, mapped = id;
+      map = calloc (needed_clauses_size, sizeof *map);
+      if (!map)
+        die ("out-of-memory allocating identifier map");
+      links = calloc (needed_clauses_size, sizeof *links);
+      if (!links)
+        die ("out-of-memory allocating used links");
+      heads = calloc (needed_clauses_size, sizeof *heads);
+      if (!heads)
+        die ("out-of-memory allocating used list headers");
+      for (;;) {
+        int where = used[id];
+	if (where) {
+	  if (where != id) {
+	    assert (id < where);
+	    links[id] = heads[where];
+	    heads[where] = id;
+	    map[id] = mapped++;
+	  } else
+	    assert (where == empty_clause);
+	  for (int link = heads[id], next; link; link = next) {
+	    next = links[link];
+	  }
+	}
+        if (id++ == empty_clause)
+          break;
+      }
+    }
   }
 
   if (output.path) {
@@ -704,27 +768,16 @@ int main (int argc, char **argv) {
     msg ("no output file specified");
 
 #ifndef NDEBUG
-  free (work.begin);
-  free (added.begin);
+  free (map);
+  free (links);
+  free (heads);
+  free (used);
   release_ints_map (&literals);
   release_ints_map (&antecedents);
-  free (deleted.begin);
-  free (links.begin);
-  free (used.begin);
 #endif
 
-  msg ("trimmed %9zu addition lines to %9zu lines %3.0f%%",
-       statistics.original.added, statistics.trimmed.added,
-       percent (statistics.trimmed.added, statistics.original.added));
-  msg ("trimmed %9zu deletion lines to %9zu lines %3.0f%%",
-       statistics.original.deleted, statistics.trimmed.deleted,
-       percent (statistics.trimmed.deleted, statistics.original.deleted));
-  msg ("trimmed %9zu lines          to %9zu lines %3.0f%%",
-       statistics.original.total, statistics.trimmed.total,
-       percent (statistics.trimmed.total, statistics.original.total));
-
   if (output.path)
-    msg ("trimmed %9.0f MB             to %9.0f MB    %3.0f%%",
+    msg ("trimmed %.0f MB to %.0f MB    %.0f%%",
          input.bytes / (double)(1 << 20), output.bytes / (double)(1 << 20),
          percent (output.bytes, input.bytes));
 
