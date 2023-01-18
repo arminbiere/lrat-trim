@@ -1,5 +1,4 @@
 #!/bin/sh
-
 die () {
   echo "lrat-trim/test/parse: $*" 1>&2
   exit 1
@@ -30,7 +29,9 @@ run () {
 
 run addeof1
 run addeof2
+run addnodigafterlitsign
 run addnoinc
+run addzeroafterlitsign
 run creof
 run delnodigit1
 run delnodigit2
@@ -49,3 +50,13 @@ run idtoobig1
 run idtoobig2
 run nodigitatid
 run zeroid
+run addlitdoublezero
+
+runs=`grep '^run [a-z]' $0|wc -l`
+logs=`ls *.log|wc -l`
+errs=`ls *.err|wc -l`
+lrats=`ls *lrat|wc -l`
+
+[ $runs = $logs ] || die "found $runs but $logs '.log' files"
+[ $runs = $errs ] || die "found $runs but $errs '.err' files"
+[ $runs = $lrats ] || die "found $runs but $lrats '.lrat' files"
