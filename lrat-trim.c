@@ -602,6 +602,7 @@ int main (int argc, char **argv) {
   if (!empty)
     die ("no empty clause added in '%s'", input.path);
 
+  // TODO: SPECIFY the various usage modes of the tool through conditions.
   // TODO what about checking (during parsing?).
   // TODO actual trimming comes here.
 
