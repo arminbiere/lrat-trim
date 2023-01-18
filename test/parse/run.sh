@@ -35,6 +35,7 @@ run creof
 run delnodigit1
 run delnodigit2
 run delnoinc
+run delnonl
 run deltoobig1
 run deltoobig2
 run deltoobig3
