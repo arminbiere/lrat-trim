@@ -164,21 +164,21 @@ static void vrb (const char *fmt, ...) {
         while (NEW_SIZE < COPY_OF_NEEDED_SIZE) \
           NEW_SIZE *= 2; \
         void *OLD_BEGIN = (MAP).begin, *NEW_BEGIN; \
-	size_t NEW_BYTES = NEW_SIZE * sizeof *(MAP).begin; \
-	if (OLD_BEGIN) { \
-	  size_t OLD_BYTES = OLD_SIZE * sizeof *(MAP).begin; \
-	  NEW_BEGIN = realloc (OLD_BEGIN, NEW_BYTES); \
-	  if (!NEW_BEGIN) \
-	    die ("out-of-memory adjusting '" #MAP "' map"); \
-	  size_t DELTA_BYTES = NEW_BYTES - OLD_BYTES; \
-	  memset ((char*)NEW_BEGIN + OLD_BYTES, 0, DELTA_BYTES); \
-	} else { \
-	  NEW_BEGIN = calloc (NEW_SIZE, sizeof *(MAP).begin); \
-	  if (!NEW_BEGIN) \
-	    die ("out-of-memory initializing '" #MAP "' map"); \
-	} \
-	(MAP).begin = NEW_BEGIN; \
-	(MAP).end = (MAP).begin + NEW_SIZE; \
+        size_t NEW_BYTES = NEW_SIZE * sizeof *(MAP).begin; \
+        if (OLD_BEGIN) { \
+          size_t OLD_BYTES = OLD_SIZE * sizeof *(MAP).begin; \
+          NEW_BEGIN = realloc (OLD_BEGIN, NEW_BYTES); \
+          if (!NEW_BEGIN) \
+            die ("out-of-memory adjusting '" #MAP "' map"); \
+          size_t DELTA_BYTES = NEW_BYTES - OLD_BYTES; \
+          memset ((char *)NEW_BEGIN + OLD_BYTES, 0, DELTA_BYTES); \
+        } else { \
+          NEW_BEGIN = calloc (NEW_SIZE, sizeof *(MAP).begin); \
+          if (!NEW_BEGIN) \
+            die ("out-of-memory initializing '" #MAP "' map"); \
+        } \
+        (MAP).begin = NEW_BEGIN; \
+        (MAP).end = (MAP).begin + NEW_SIZE; \
       } \
       (MAP).end = (MAP).begin + COPY_OF_NEEDED_SIZE; \
     } \
@@ -200,6 +200,9 @@ static void release_ints_map (struct ints_map *map) {
 #ifdef LOGGING
 
 static bool logging () { return verbosity == INT_MAX; }
+
+static void logging_prefix (const char *, ...)
+    __attribute__ ((format (printf, 1, 2)));
 
 static void logging_prefix (const char *fmt, ...) {
   assert (logging ());
@@ -309,13 +312,6 @@ static int marked_used (int used_id) {
 static bool is_original_clause (int id) {
   assert (0 < id);
   return !min_added || id < min_added;
-}
-
-static void mark_added (int added_id) {
-  assert (0 < added_id);
-  size_t needed_added_size = (size_t)added_id + 1;
-  ADJUST (added, needed_added_size);
-  added.begin[added_id] = true;
 }
 
 static bool marked_added (int used_id) {
@@ -493,7 +489,7 @@ int main (int argc, char **argv) {
         last = other;
       } while (last);
 #if !defined(NDEBUG) || defined(LOGGING)
-      dbgs (work.begin, "parsed deletion %d and deleted clauses");
+      dbgs (work.begin, "parsed deletion %d and deleted clauses", id);
       CLEAR (work);
 #endif
     } else {
