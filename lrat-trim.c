@@ -271,7 +271,32 @@ static inline int read_char (void) {
   }
   if (res == '\n')
     input.lines++;
+  if (res != EOF)
+    input.bytes++;
   return res;
+}
+
+static inline void write_char (unsigned ch) {
+  assert (output.file);
+  fputc_unlocked (ch, output.file);
+  output.bytes++;
+  if (ch == '\n')
+    output.lines++;
+}
+
+static inline void write_new_line () { write_char ('\n'); }
+
+static inline void write_space () { write_char (' '); }
+
+static inline void write_str (const char * str) {
+  for (const char * p = str; *p; p++)
+    write_char (*p);
+}
+
+static inline void write_int (int i) {
+  char buffer[16];
+  sprintf (buffer, "%d", i);
+  write_str (buffer);
 }
 
 #include <sys/resource.h>
@@ -335,6 +360,15 @@ static bool marked_added (int id) {
 static bool has_been_added (int id) {
   assert (0 < id);
   return is_original_clause (id) || marked_added (id);
+}
+
+static int map_id (int id) {
+  assert (id != INT_MIN);
+  int abs_id = abs (id);
+  int res = id < first_clause_added_in_proof ? id : map[abs_id];
+  if (id < 0)
+    res = -res;
+  return res;
 }
 
 static const char *exceeds_int_max (int n, int ch) {
@@ -506,7 +540,7 @@ int main (int argc, char **argv) {
 #if !defined(NDEBUG) || defined(LOGGING)
       dbgs (work.begin, "parsed deletion %d and deleted clauses", id);
       CLEAR (work);
-#endif 
+#endif
     } else {
       if (id == last_id)
         err ("line identifier '%d' of addition line does not increase", id);
@@ -685,73 +719,40 @@ int main (int argc, char **argv) {
   if (!empty_clause)
     die ("no empty clause added in '%s'", input.path);
 
-  {
-    size_t needed_clauses_size = (size_t)empty_clause + 1;
-    used = calloc (needed_clauses_size, sizeof *used);
-    if (!used)
-      die ("out-of-memory allocating used stamps");
+  size_t needed_clauses_size = (size_t)empty_clause + 1;
+  used = calloc (needed_clauses_size, sizeof *used);
+  if (!used)
+    die ("out-of-memory allocating used stamps");
 
-    assert (EMPTY (work));
-    mark_used (empty_clause, empty_clause);
-    if (!is_original_clause (empty_clause))
-      PUSH (work, empty_clause);
+  assert (EMPTY (work));
+  mark_used (empty_clause, empty_clause);
+  if (!is_original_clause (empty_clause))
+    PUSH (work, empty_clause);
 
-    while (!EMPTY (work)) {
-      unsigned id = POP (work);
-      assert (marked_added (id));
-      assert (used[id]);
-      int *a = antecedents.begin[id];
-      assert (a);
-      for (int *p = a, other; (other = abs (*p)); p++)
-        if (!mark_used (other, id) && !is_original_clause (other))
-          PUSH (work, other);
-    }
-
-    msg ("trimmed %zu original clauses in CNF to %zu clauses %.0f%%",
-         statistics.original.cnf.added, statistics.trimmed.cnf.added,
-         percent (statistics.trimmed.cnf.added,
-                  statistics.original.cnf.added));
-
-    msg ("trimmed %zu original proof lemmas to %zu clauses %.0f%%",
-         statistics.original.proof.added, statistics.trimmed.proof.added,
-         percent (statistics.trimmed.proof.added,
-                  statistics.original.proof.added));
-
-    free (work.begin);
-
-    {
-      int id = first_clause_added_in_proof, mapped = id;
-      map = calloc (needed_clauses_size, sizeof *map);
-      if (!map)
-        die ("out-of-memory allocating identifier map");
-      links = calloc (needed_clauses_size, sizeof *links);
-      if (!links)
-        die ("out-of-memory allocating used links");
-      heads = calloc (needed_clauses_size, sizeof *heads);
-      if (!heads)
-        die ("out-of-memory allocating used list headers");
-      for (;;) {
-        int where = used[id];
-	if (where) {
-	  if (where != id) {
-	    assert (id < where);
-	    links[id] = heads[where];
-	    heads[where] = id;
-	    map[id] = mapped++;
-	  } else
-	    assert (where == empty_clause);
-	  for (int link = heads[id], next; link; link = next) {
-	    next = links[link];
-	  }
-	}
-        if (id++ == empty_clause)
-          break;
-      }
-    }
+  while (!EMPTY (work)) {
+    unsigned id = POP (work);
+    assert (marked_added (id));
+    assert (used[id]);
+    int *a = antecedents.begin[id];
+    assert (a);
+    for (int *p = a, other; (other = abs (*p)); p++)
+      if (!mark_used (other, id) && !is_original_clause (other))
+        PUSH (work, other);
   }
 
+  msg ("trimmed %zu original clauses in CNF to %zu clauses %.0f%%",
+       statistics.original.cnf.added, statistics.trimmed.cnf.added,
+       percent (statistics.trimmed.cnf.added,
+                statistics.original.cnf.added));
+
+  msg ("trimmed %zu original proof lemmas to %zu clauses %.0f%%",
+       statistics.original.proof.added, statistics.trimmed.proof.added,
+       percent (statistics.trimmed.proof.added,
+                statistics.original.proof.added));
+
+  free (work.begin);
+
   if (output.path) {
-    // TODO what about new deletion lines (with links).
     if (!strcmp (output.path, "-")) {
       output.file = stdout;
       output.path = "<stdout>";
@@ -759,13 +760,95 @@ int main (int argc, char **argv) {
     } else if (!(output.file = fopen (output.path, "w")))
       die ("can not write output proof file '%s'", output.path);
     msg ("writing '%s'", output.path);
-    // TODO do the actual writing of added and deleted lines.
+  } else {
+    msg ("no output file specified");
+    assert (!output.file);
+  }
+
+  {
+    for (int id = 1; id != first_clause_added_in_proof; id++)
+      if (!used[id]) {
+	if (output.file) {
+	  if (!statistics.trimmed.cnf.deleted) {
+	    write_int (first_clause_added_in_proof -1);
+	    write_str (" d");
+	  }
+	  write_char (' ');
+	  write_int (id);
+	}
+	statistics.trimmed.cnf.deleted++;
+      }
+
+    if (statistics.trimmed.cnf.deleted) {
+      if (output.file)
+	write_str (" 0\n");
+
+      vrb ("trimmed proof has %zu CNF deleted clauses initially", 
+           statistics.trimmed.cnf.deleted);
+    }
+  }
+
+  {
+    int id = first_clause_added_in_proof, mapped = id;
+    map = calloc (needed_clauses_size, sizeof *map);
+    if (!map)
+      die ("out-of-memory allocating identifier map");
+    links = calloc (needed_clauses_size, sizeof *links);
+    if (!links)
+      die ("out-of-memory allocating used links");
+    heads = calloc (needed_clauses_size, sizeof *heads);
+    if (!heads)
+      die ("out-of-memory allocating used list headers");
+    for (;;) {
+      int where = used[id];
+      if (where) {
+        if (where != id) {
+          assert (id < where);
+          links[id] = heads[where];
+          heads[where] = id;
+          map[id] = mapped;
+        } else
+          assert (where == empty_clause);
+        if (output.file) {
+	  write_int (mapped);
+          int *l = literals.begin[id];
+	  assert (l);
+          for (const int *p = l; *p; p++)
+	    write_space (), write_int (*p);
+	  write_str (" 0");
+	  int *a = antecedents.begin[id];
+	  assert (a);
+          for (const int *p = a; *p; p++) {
+	    write_space ();
+	    int other = *p;
+	    assert (abs (other) < id);
+	    write_int (map_id (other));
+	  }
+	  write_str (" 0\n");
+        }
+        int head = heads[id];
+        if (head) {
+          for (int link = head, next; link; link = next) {
+            if (is_original_clause (link))
+              statistics.trimmed.cnf.deleted++;
+            else
+              statistics.trimmed.proof.deleted++;
+            next = links[link];
+          }
+        }
+        mapped++;
+      }
+      if (id++ == empty_clause)
+        break;
+    }
+  }
+
+  if (output.file) {
     if (output.close)
       fclose (output.file);
     vrb ("wrote %zu lines %.0f MB", output.lines,
          output.bytes / (double)(1 << 20));
-  } else
-    msg ("no output file specified");
+  }
 
 #ifndef NDEBUG
   free (map);
@@ -777,8 +860,9 @@ int main (int argc, char **argv) {
 #endif
 
   if (output.path)
-    msg ("trimmed %.0f MB to %.0f MB    %.0f%%",
-         input.bytes / (double)(1 << 20), output.bytes / (double)(1 << 20),
+    msg ("trimmed %zu bytes (%.0f MB) to %zu bytes (%.0f MB) %.0f%%",
+         input.bytes, input.bytes / (double)(1 << 20),
+	 output.bytes, output.bytes / (double)(1 << 20),
          percent (output.bytes, input.bytes));
 
   msg ("used %.2f seconds and %.0f MB", process_time (), mega_bytes ());
