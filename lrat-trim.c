@@ -38,6 +38,12 @@ struct file {
   int close;
 };
 
+struct lines {
+  size_t count;
+  size_t added;
+  size_t deleted;
+} lines;
+
 struct bool_stack {
   bool *begin, *end, *allocated;
 };
@@ -59,8 +65,8 @@ struct deletion_map {
   struct deletion *begin, *end;
 };
 
-struct file input;
-struct file output;
+static struct file input;
+static struct file output;
 static int verbosity;
 
 static int min_added;
