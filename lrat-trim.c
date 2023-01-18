@@ -602,7 +602,11 @@ int main (int argc, char **argv) {
   if (!empty)
     die ("no empty clause added in '%s'", input.path);
 
+  // TODO what about checking (during parsing?).
+  // TODO actual trimming comes here.
+
   if (output.path) {
+    // TODO what about new deletion lines (with links).
     if (!strcmp (output.path, "-")) {
       output.file = stdout;
       output.path = "<stdout>";
@@ -610,6 +614,7 @@ int main (int argc, char **argv) {
     } else if (!(output.file = fopen (output.path, "w")))
       die ("can not write output proof file '%s'", output.path);
     msg ("writing '%s'", output.path);
+    // TODO do the actual writing of added and deleted lines.
     if (output.close)
       fclose (output.file);
     vrb ("wrote %zu lines %.0f MB", output.lines,
