@@ -3,7 +3,6 @@ die () {
   echo "lrat-trim/test/parse: $*" 1>&2
   exit 1
 }
-
 cd `dirname $0`
 
 lrattrim=../../lrat-trim
@@ -27,12 +26,24 @@ run () {
   fi
 }
 
+run addantedoublezero
+run addantetoobig1
+run addantetoobig2
+run addantetoobig3
 run addeof1
 run addeof2
+run addlitdoublezero
 run addlitoobig1
 run addlitoobig2
+run addlitoobig3
+run addnodigafterantesign
 run addnodigafterlitsign
 run addnoinc
+run addnonlafterzero
+run addnospaceafterante
+run addnospaceafterlit
+run addnospaceafterzero
+run addzeroafterantedsign
 run addzeroafterlitsign
 run creof
 run delnodigit1
@@ -52,7 +63,6 @@ run idtoobig1
 run idtoobig2
 run nodigitatid
 run zeroid
-run addlitdoublezero
 
 runs=`grep '^run [a-z]' run.sh|wc -l`
 logs=`ls *.log|wc -l`

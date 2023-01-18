@@ -459,7 +459,8 @@ int main (int argc, char **argv) {
             err ("expected non-zero digit after '%d -'", last);
           sign = -1;
         } else if (!isdigit (ch))
-          err ("expected literal or '0' after '%d ' in clause %d", last, id);
+          err ("expected literal or '0' after '%d ' in clause %d", last,
+               id);
         else
           sign = 1;
         int idx = ch - '0';
@@ -503,18 +504,18 @@ int main (int argc, char **argv) {
         int *l = malloc (bytes_literals);
         if (!l) {
           assert (size_literals);
-          err ("out-of-memory allocating literals of size %zu clause %d",
+          die ("out-of-memory allocating literals of size %zu clause %d",
                size_literals - 1, id);
         }
         memcpy (l, line.begin, bytes_literals);
         ADJUST (literals, needed_clauses_size);
         literals.begin[id] = l;
-	if (size_literals == 1) {
-	  if (!empty) {
-	    vrb ("found empty clause %d", id);
-	    empty = id;
-	  }
-	}
+        if (size_literals == 1) {
+          if (!empty) {
+            vrb ("found empty clause %d", id);
+            empty = id;
+          }
+        }
       }
       CLEAR (line);
       assert (!last);
@@ -557,12 +558,11 @@ int main (int argc, char **argv) {
           other += digit;
         }
         int signed_other = sign * other;
-        if (other && ch != ' ') {
+        if (other && ch != ' ')
           err ("expected space after antecedent '%d' in clause %d",
                signed_other, id);
-          if (!other && ch != '\n')
-            err ("expected new-line after '0' at end of clause %d", id);
-        }
+        if (!other && ch != '\n')
+          err ("expected new-line after '0' at end of clause %d", id);
         PUSH (line, signed_other);
         last = signed_other;
       } while (last);
@@ -573,7 +573,7 @@ int main (int argc, char **argv) {
         int *a = malloc (bytes_antecedents);
         if (!a) {
           assert (size_antecedents);
-          err ("out-of-memory allocating antecedents of size %zu clause "
+          die ("out-of-memory allocating antecedents of size %zu clause "
                "%d",
                size_antecedents - 1, id);
         }
