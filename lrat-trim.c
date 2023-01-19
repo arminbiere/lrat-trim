@@ -760,99 +760,92 @@ static void write_non_empty_proof () {
   if (!heads)
     die ("out-of-memory allocating used list headers");
 
-  {
-    for (int id = 1; id != first_clause_added_in_proof; id++) {
-      int where = used[id];
-      if (where) {
-        assert (id < where);
-        assert (!is_original_clause (where));
-        links[id] = heads[where];
-        heads[where] = id;
-      } else {
-        if (output.file) {
-          if (!statistics.trimmed.cnf.deleted) {
-            write_int (first_clause_added_in_proof - 1);
-            write_str (" d");
-          }
-          write_space ();
-          write_int (id);
+  for (int id = 1; id != first_clause_added_in_proof; id++) {
+    int where = used[id];
+    if (where) {
+      assert (id < where);
+      assert (!is_original_clause (where));
+      links[id] = heads[where];
+      heads[where] = id;
+    } else {
+      if (output.file) {
+        if (!statistics.trimmed.cnf.deleted) {
+          write_int (first_clause_added_in_proof - 1);
+          write_str (" d");
         }
-        statistics.trimmed.cnf.deleted++;
-        statistics.trimmed.cnf.added++;
+        write_space ();
+        write_int (id);
       }
+      statistics.trimmed.cnf.deleted++;
+      statistics.trimmed.cnf.added++;
     }
+  }
 
-    if (statistics.trimmed.cnf.deleted) {
-      if (output.file)
-        write_str (" 0\n");
+  if (statistics.trimmed.cnf.deleted) {
+    if (output.file)
+      write_str (" 0\n");
 
-      vrb ("deleting %zu original CNF clauses initially",
-           statistics.trimmed.cnf.deleted);
-    }
+    vrb ("deleting %zu original CNF clauses initially",
+         statistics.trimmed.cnf.deleted);
   }
 
   map = calloc (needed_clauses_size, sizeof *map);
   if (!map)
     die ("out-of-memory allocating identifier map");
 
-  {
-    int id = first_clause_added_in_proof, mapped = id;
-    for (;;) {
-      int where = used[id];
-      if (where) {
-        if (id != empty_clause) {
-          assert (id < where);
-          links[id] = heads[where];
-          heads[where] = id;
-          map[id] = mapped;
+  int id = first_clause_added_in_proof;
+  int mapped = id;
+
+  for (;;) {
+    int where = used[id];
+    if (where) {
+      if (id != empty_clause) {
+        assert (id < where);
+        links[id] = heads[where];
+        heads[where] = id;
+        map[id] = mapped;
+      }
+      if (output.file) {
+        write_int (mapped);
+        int *l = literals.begin[id];
+        assert (l);
+        for (const int *p = l; *p; p++)
+          write_space (), write_int (*p);
+        write_str (" 0");
+        int *a = antecedents.begin[id];
+        assert (a);
+        for (const int *p = a; *p; p++) {
+          write_space ();
+          int other = *p;
+          assert (abs (other) < id);
+          write_int (map_id (other));
         }
+        write_str (" 0\n");
+      }
+      int head = heads[id];
+      if (head) {
         if (output.file) {
           write_int (mapped);
-          int *l = literals.begin[id];
-          assert (l);
-          for (const int *p = l; *p; p++)
-            write_space (), write_int (*p);
-          write_str (" 0");
-          int *a = antecedents.begin[id];
-          assert (a);
-          for (const int *p = a; *p; p++) {
-            write_space ();
-            int other = *p;
-            assert (abs (other) < id);
-            write_int (map_id (other));
-          }
-          write_str (" 0\n");
+          write_str (" d");
         }
-        int head = heads[id];
-        if (head) {
+        for (int link = head, next; link; link = next) {
+          if (is_original_clause (link))
+            statistics.trimmed.cnf.deleted++;
+          else
+            statistics.trimmed.proof.deleted++;
           if (output.file) {
-            write_int (mapped);
-            write_str (" d");
+            write_space ();
+            write_int (map_id (link));
           }
-          for (int link = head, next; link; link = next) {
-            if (is_original_clause (link))
-              statistics.trimmed.cnf.deleted++;
-            else
-              statistics.trimmed.proof.deleted++;
-            if (output.file) {
-              write_space ();
-              write_int (map_id (link));
-            }
-            next = links[link];
-          }
-          if (output.file)
-            write_str (" 0\n");
+          next = links[link];
         }
-        mapped++;
+        if (output.file)
+          write_str (" 0\n");
       }
-      if (id++ == empty_clause)
-        break;
+      mapped++;
     }
-    assert (statistics.trimmed.cnf.added - statistics.trimmed.cnf.deleted <=
-            1);
-    assert (statistics.trimmed.proof.added -
-                statistics.trimmed.proof.deleted <=
-            1);
+    if (id++ == empty_clause)
+      break;
   }
 }
 
@@ -882,7 +875,7 @@ static void release () {
 #endif
 }
 
-static void options (int argc, char ** argv) {
+static void options (int argc, char **argv) {
   for (int i = 1; i != argc; i++) {
     const char *arg = argv[i];
     if (!strcmp (arg, "-h")) {
@@ -935,8 +928,8 @@ static void banner () {
   if (verbosity < 0)
     return;
   printf ("c LRAT-TRIM Version %s trims LRAT proofs\n"
-	  "c Copyright (c) 2023 Armin Biere University of Freiburg\n",
-	  version);
+          "c Copyright (c) 2023 Armin Biere University of Freiburg\n",
+          version);
   fflush (stdout);
 }
 
