@@ -184,8 +184,9 @@ static void wrn (const char *fmt, ...) {
 
 #define RELEASE(STACK) free ((STACK).begin)
 
-#define ADJUST(MAP, NEEDED_SIZE) \
+#define ADJUST(MAP, ID) \
   do { \
+    size_t NEEDED_SIZE = (size_t) (ID) + 1; \
     size_t OLD_SIZE = SIZE (MAP); \
     if (OLD_SIZE >= NEEDED_SIZE) \
       break; \
@@ -477,8 +478,7 @@ static void parse_proof () {
             err ("deleted clause '%d' in deletion %d is neither "
                  "an original clause nor has been added",
                  other, id);
-          size_t needed_clauses_size = (size_t)other + 1;
-          ADJUST (deleted, needed_clauses_size);
+          ADJUST (deleted, other);
           struct deletion *d = deleted.begin + other;
           if (d->id) {
             assert (d->line);
@@ -570,26 +570,25 @@ static void parse_proof () {
         last = lit;
       }
       dbgs (work.begin, "clause %d literals", id);
-      size_t needed_clauses_size = (size_t)id + 1;
-      {
-        size_t size_literals = SIZE (work);
-        size_t bytes_literals = size_literals * sizeof (int);
-        int *l = malloc (bytes_literals);
-        if (!l) {
-          assert (size_literals);
-          die ("out-of-memory allocating literals of size %zu clause %d",
-               size_literals - 1, id);
-        }
-        memcpy (l, work.begin, bytes_literals);
-        ADJUST (literals, needed_clauses_size);
-        literals.begin[id] = l;
-        if (size_literals == 1) {
-          if (!empty_clause) {
-            vrb ("found empty clause %d", id);
-            empty_clause = id;
-          }
-        }
+
+      size_t size_literals = SIZE (work);
+      size_t bytes_literals = size_literals * sizeof (int);
+      int *l = malloc (bytes_literals);
+      if (!l) {
+	assert (size_literals);
+	die ("out-of-memory allocating literals of size %zu clause %d",
+	     size_literals - 1, id);
       }
+      memcpy (l, work.begin, bytes_literals);
+      ADJUST (literals, id);
+      literals.begin[id] = l;
+      if (size_literals == 1) {
+	if (!empty_clause) {
+	  vrb ("found empty clause %d", id);
+	  empty_clause = id;
+	}
+      }
+
       CLEAR (work);
       assert (!last);
       do {
@@ -660,10 +659,10 @@ static void parse_proof () {
         }
         memcpy (a, work.begin, bytes_antecedents);
         CLEAR (work);
-        ADJUST (antecedents, needed_clauses_size);
+        ADJUST (antecedents, id);
         antecedents.begin[id] = a;
       }
-      ADJUST (added, needed_clauses_size);
+      ADJUST (added, id);
       added.begin[id] = true;
       statistics.original.proof.added++;
     }
@@ -730,7 +729,9 @@ static void open_output_proof () {
       assert (!output.close);
     } else if (!(output.file = fopen (output.path, "w")))
       die ("can not write output proof file '%s'", output.path);
-    msg ("writing '%s'", output.path);
+    else
+      output.close = 1;
+    msg ("writing proof to '%s'", output.path);
   } else {
     msg ("no output file specified");
     assert (!output.file);
@@ -850,7 +851,7 @@ static void write_non_empty_proof () {
 }
 
 static void write_empty_proof () {
-  msg ("writing empty proof without not find empty clause in input proof");
+  msg ("writing empty proof without empty clause in input proof");
 }
 
 static void write_proof () {
