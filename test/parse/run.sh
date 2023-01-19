@@ -19,9 +19,9 @@ run () {
   status=$?
   if [ $status = 1 ]
   then
-    echo "parsing 'test/parse/$lrat' failed as expected"
+    echo "parsing with 'lart-trim test/parse/$lrat' failed as expected"
   else
-    echo "parsing 'test/parse/$lrat' succeeded unexpectedly"
+    echo "parsing with 'lart-trim test/parse/$lrat' succeeded unexpectedly"
     exit 1
   fi
 }
