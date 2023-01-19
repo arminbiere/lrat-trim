@@ -40,6 +40,10 @@ run () {
     exit 1
   fi
 
+  lrat1=$name.lrat1
+  log1=$name.log1
+  err1=$name.err1
+
   $lrattrim ${includecnf}$lrat $lrat1 1>$log1 2>$err1
   status=$?
   if [ $status = 0 ]

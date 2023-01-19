@@ -337,8 +337,7 @@ static double average (double a, double b) { return b ? a / b : 0; }
 static double percent (double a, double b) { return average (100 * a, b); }
 
 static bool is_original_clause (int id) {
-  assert (0 < id);
-  return !first_clause_added_in_proof || id < first_clause_added_in_proof;
+  return !id || !first_clause_added_in_proof || id < first_clause_added_in_proof;
 }
 
 static bool mark_used (int id, int used_where) {
@@ -414,11 +413,10 @@ static void parse_proof () {
       break;
     if (!isdigit (ch))
       err ("expected digit as first character of line");
-    if (ch == '0')
-      err ("expected non-zero digit as first character of line");
     int id = (ch - '0');
     while (isdigit (ch = read_char ())) {
-      assert (id);
+      if (!id)
+	err ("unexpected digit '%c' after indentifier starting with '0'", ch);
       if (INT_MAX / 10 < id)
       LINE_IDENTIFIER_EXCEEDS_INT_MAX:
         err ("line identifier '%s' exceeds 'INT_MAX'",
@@ -470,7 +468,7 @@ static void parse_proof () {
         if (other) {
           if (ch != ' ')
             err ("expected space after '%d' in deletion %d", other, id);
-          if (other > id)
+          if (id && other > id)
             err ("deleted clause '%d' "
                  "larger than deletion identifier '%d'",
                  other, id);
@@ -688,24 +686,27 @@ static void parse_proof () {
 }
 
 static void trim_proof () {
+
   size_t needed_clauses_size = (size_t)empty_clause + 1;
   used = calloc (needed_clauses_size, sizeof *used);
   if (!used)
     die ("out-of-memory allocating used stamps");
 
-  assert (EMPTY (work));
-  mark_used (empty_clause, empty_clause);
-  if (!is_original_clause (empty_clause))
-    PUSH (work, empty_clause);
+  if (empty_clause) {
+    assert (EMPTY (work));
+    mark_used (empty_clause, empty_clause);
+    if (!is_original_clause (empty_clause))
+      PUSH (work, empty_clause);
 
-  while (!EMPTY (work)) {
-    unsigned id = POP (work);
-    assert (used[id]);
-    int *a = antecedents.begin[id];
-    assert (a);
-    for (int *p = a, other; (other = abs (*p)); p++)
-      if (!mark_used (other, id) && !is_original_clause (other))
-        PUSH (work, other);
+    while (!EMPTY (work)) {
+      unsigned id = POP (work);
+      assert (used[id]);
+      int *a = antecedents.begin[id];
+      assert (a);
+      for (int *p = a, other; (other = abs (*p)); p++)
+	if (!mark_used (other, id) && !is_original_clause (other))
+	  PUSH (work, other);
+    }
   }
 
   msg ("trimmed %zu original clauses in CNF to %zu clauses %.0f%%",

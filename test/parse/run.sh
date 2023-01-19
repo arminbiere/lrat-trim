@@ -65,7 +65,7 @@ run idnospace
 run idtoobig1
 run idtoobig2
 run nodigitatid
-run zeroid
+run zeroneid
 
 runs=`grep '^run [a-z]' run.sh|wc -l`
 logs=`ls *.log|wc -l`
