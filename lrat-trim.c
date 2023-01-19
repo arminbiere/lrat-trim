@@ -91,6 +91,7 @@ static void die (const char *, ...) __attribute__ ((format (printf, 1, 2)));
 static void err (const char *, ...) __attribute__ ((format (printf, 1, 2)));
 static void msg (const char *, ...) __attribute__ ((format (printf, 1, 2)));
 static void vrb (const char *, ...) __attribute__ ((format (printf, 1, 2)));
+static void wrn (const char *, ...) __attribute__ ((format (printf, 1, 2)));
 
 static void die (const char *fmt, ...) {
   fputs ("lrat-trim: error: ", stderr);
@@ -130,6 +131,18 @@ static void vrb (const char *fmt, ...) {
   if (verbosity < 1)
     return;
   fputs ("c ", stdout);
+  va_list ap;
+  va_start (ap, fmt);
+  vprintf (fmt, ap);
+  va_end (ap);
+  fputc ('\n', stdout);
+  fflush (stdout);
+}
+
+static void wrn (const char *fmt, ...) {
+  if (verbosity < 0)
+    return;
+  fputs ("c WARNING ", stdout);
   va_list ap;
   va_start (ap, fmt);
   vprintf (fmt, ap);
@@ -391,59 +404,7 @@ static const char *exceeds_int_max (int n, int ch) {
   return buffer;
 }
 
-int main (int argc, char **argv) {
-
-  for (int i = 1; i != argc; i++) {
-    const char *arg = argv[i];
-    if (!strcmp (arg, "-h")) {
-      fputs (usage, stdout);
-      exit (0);
-    } else if (!strcmp (arg, "-l"))
-#ifdef LOGGING
-      verbosity = INT_MAX;
-#else
-      die ("invalid option '-l' (build without logging support)");
-#endif
-    else if (!strcmp (arg, "-q"))
-      verbosity = -1;
-    else if (!strcmp (arg, "-v")) {
-      if (verbosity <= 0)
-        verbosity = 1;
-    } else if (!strcmp (arg, "--version"))
-      fputs (version, stdout), fputc ('\n', stdout), exit (0);
-    else if (arg[0] == '-' && arg[1])
-      die ("invalid option '%s' (try '-h')", arg);
-    else if (output.path)
-      die ("too many arguments '%s', '%s' and '%s' (try '-h')", input.path,
-           output.path, arg);
-    else if (input.path)
-      output.path = arg;
-    else
-      input.path = arg;
-  }
-
-  if (!input.path)
-    die ("no input proof given (try '-h')");
-
-  if (output.path && !strcmp (input.path, output.path) &&
-      strcmp (input.path, "-") && strcmp (input.path, "/dev/null"))
-    die ("input and output path are both '%s'", input.path);
-
-  if (verbosity >= 0) {
-    printf ("c LRAT-TRIM Version %s trims LRAT proofs\n"
-            "c Copyright (c) 2023 Armin Biere University of Freiburg\n",
-            version);
-    fflush (stdout);
-  }
-
-  if (!strcmp (input.path, "-")) {
-    input.file = stdin;
-    input.path = "<stdin>";
-    assert (!input.close);
-  } else if (!(input.file = fopen (input.path, "r")))
-    die ("can not read input proof file '%s'", input.path);
-  else
-    input.close = 1;
+static void parse_proof () {
   msg ("reading proof from '%s'", input.path);
   int ch, last_id = 0;
   for (;;) {
@@ -714,6 +675,9 @@ int main (int argc, char **argv) {
   free (added.begin);
   free (deleted.begin);
 
+  if (!empty_clause)
+    wrn ("no empty clause added in input proof");
+
   vrb ("read %zu lines with %zu bytes (%.0f MB)", input.lines, input.bytes,
        input.bytes / (double)(1 << 20));
 
@@ -722,10 +686,9 @@ int main (int argc, char **argv) {
 
   vrb ("parsing finished in %.2f seconds and used %.0f MB", process_time (),
        mega_bytes ());
+}
 
-  if (!empty_clause)
-    die ("no empty clause added in '%s'", input.path);
-
+static void trim_proof () {
   size_t needed_clauses_size = (size_t)empty_clause + 1;
   used = calloc (needed_clauses_size, sizeof *used);
   if (!used)
@@ -757,7 +720,9 @@ int main (int argc, char **argv) {
                 statistics.original.proof.added));
 
   free (work.begin);
+}
 
+static void open_output_proof () {
   if (output.path) {
     if (!strcmp (output.path, "-")) {
       output.file = stdout;
@@ -770,6 +735,23 @@ int main (int argc, char **argv) {
     msg ("no output file specified");
     assert (!output.file);
   }
+}
+
+static void close_output_proof () {
+  if (output.close)
+    fclose (output.file);
+  vrb ("wrote %zu lines with %zu bytes (%.0f MB)", output.lines,
+       output.bytes, output.bytes / (double)(1 << 20));
+  msg ("trimmed %zu bytes (%.0f MB) to %zu bytes (%.0f MB) %.0f%%",
+       input.bytes, input.bytes / (double)(1 << 20), output.bytes,
+       output.bytes / (double)(1 << 20),
+       percent (output.bytes, input.bytes));
+}
+
+static void write_non_empty_proof () {
+
+  assert (empty_clause > 0);
+  size_t needed_clauses_size = (size_t)empty_clause + 1;
 
   links = calloc (needed_clauses_size, sizeof *links);
   if (!links)
@@ -819,11 +801,11 @@ int main (int argc, char **argv) {
       int where = used[id];
       if (where) {
         if (id != empty_clause) {
-	  assert (id < where);
-	  links[id] = heads[where];
-	  heads[where] = id;
-	  map[id] = mapped;
-	}
+          assert (id < where);
+          links[id] = heads[where];
+          heads[where] = id;
+          map[id] = mapped;
+        }
         if (output.file) {
           write_int (mapped);
           int *l = literals.begin[id];
@@ -866,16 +848,86 @@ int main (int argc, char **argv) {
       if (id++ == empty_clause)
         break;
     }
-    assert (statistics.trimmed.cnf.added - statistics.trimmed.cnf.deleted <= 1);
-    assert (statistics.trimmed.proof.added - statistics.trimmed.proof.deleted <= 1);
+    assert (statistics.trimmed.cnf.added - statistics.trimmed.cnf.deleted <=
+            1);
+    assert (statistics.trimmed.proof.added -
+                statistics.trimmed.proof.deleted <=
+            1);
+  }
+}
+
+static void write_empty_proof () {
+  msg ("writing empty proof without not find empty clause in input proof");
+}
+
+static void write_proof () {
+  if (!output.path)
+    return;
+  open_output_proof ();
+  if (empty_clause)
+    write_non_empty_proof ();
+  else
+    write_empty_proof ();
+  close_output_proof ();
+}
+
+int main (int argc, char **argv) {
+
+  for (int i = 1; i != argc; i++) {
+    const char *arg = argv[i];
+    if (!strcmp (arg, "-h")) {
+      fputs (usage, stdout);
+      exit (0);
+    } else if (!strcmp (arg, "-l"))
+#ifdef LOGGING
+      verbosity = INT_MAX;
+#else
+      die ("invalid option '-l' (build without logging support)");
+#endif
+    else if (!strcmp (arg, "-q"))
+      verbosity = -1;
+    else if (!strcmp (arg, "-v")) {
+      if (verbosity <= 0)
+        verbosity = 1;
+    } else if (!strcmp (arg, "--version"))
+      fputs (version, stdout), fputc ('\n', stdout), exit (0);
+    else if (arg[0] == '-' && arg[1])
+      die ("invalid option '%s' (try '-h')", arg);
+    else if (output.path)
+      die ("too many arguments '%s', '%s' and '%s' (try '-h')", input.path,
+           output.path, arg);
+    else if (input.path)
+      output.path = arg;
+    else
+      input.path = arg;
   }
 
-  if (output.file) {
-    if (output.close)
-      fclose (output.file);
-    vrb ("wrote %zu lines with %zu bytes (%.0f MB)", output.lines,
-         output.bytes, output.bytes / (double)(1 << 20));
+  if (!input.path)
+    die ("no input proof given (try '-h')");
+
+  if (output.path && !strcmp (input.path, output.path) &&
+      strcmp (input.path, "-") && strcmp (input.path, "/dev/null"))
+    die ("input and output path are both '%s'", input.path);
+
+  if (verbosity >= 0) {
+    printf ("c LRAT-TRIM Version %s trims LRAT proofs\n"
+            "c Copyright (c) 2023 Armin Biere University of Freiburg\n",
+            version);
+    fflush (stdout);
   }
+
+  if (!strcmp (input.path, "-")) {
+    input.file = stdin;
+    input.path = "<stdin>";
+    assert (!input.close);
+  } else if (!(input.file = fopen (input.path, "r")))
+    die ("can not read input proof file '%s'", input.path);
+  else
+    input.close = 1;
+
+  parse_proof ();
+  trim_proof ();
+  write_proof ();
 
 #ifndef NDEBUG
   free (map);
@@ -885,12 +937,6 @@ int main (int argc, char **argv) {
   release_ints_map (&literals);
   release_ints_map (&antecedents);
 #endif
-
-  if (output.path)
-    msg ("trimmed %zu bytes (%.0f MB) to %zu bytes (%.0f MB) %.0f%%",
-         input.bytes, input.bytes / (double)(1 << 20), output.bytes,
-         output.bytes / (double)(1 << 20),
-         percent (output.bytes, input.bytes));
 
   msg ("used %.2f seconds and %.0f MB", process_time (), mega_bytes ());
 

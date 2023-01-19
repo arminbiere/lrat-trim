@@ -1,9 +1,13 @@
 #!/bin/sh
+
 die () {
   echo "lrat-trim/test/parse: $*" 1>&2
   exit 1
 }
+
 cd `dirname $0`
+
+rm -f *.err *log
 
 lrattrim=../../lrat-trim
 
@@ -19,9 +23,9 @@ run () {
   status=$?
   if [ $status = 1 ]
   then
-    echo "parsing with 'lart-trim test/parse/$lrat' failed as expected"
+    echo "parsing with 'lrat-trim test/parse/$lrat' failed as expected"
   else
-    echo "parsing with 'lart-trim test/parse/$lrat' succeeded unexpectedly"
+    echo "parsing with 'lrat-trim test/parse/$lrat' succeeded unexpectedly"
     exit 1
   fi
 }
@@ -57,7 +61,6 @@ run deltwice
 run delunexpdig
 run deof
 run dnospace
-run empty
 run idnospace
 run idtoobig1
 run idtoobig2

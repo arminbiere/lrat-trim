@@ -1,9 +1,13 @@
 #!/bin/sh
+
 die () {
   echo "lrat-trim/test/regr: $*" 1>&2
   exit 1
 }
+
 cd `dirname $0`
+
+rm -f *.err* *.log* *.lrat1
 
 lrattrim=../../lrat-trim
 
