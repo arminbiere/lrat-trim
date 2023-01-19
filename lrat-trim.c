@@ -1,4 +1,4 @@
-static const char *version = "0.0.0";
+static const char *version = "0.0.1";
 
 // clang-format off
 
@@ -192,16 +192,16 @@ static void wrn (const char *fmt, ...) {
     size_t NEW_SIZE = OLD_SIZE ? 2 * OLD_SIZE : 1; \
     while (NEW_SIZE < NEEDED_SIZE) \
       NEW_SIZE *= 2; \
-    void *NEW_BEGIN = calloc (NEW_SIZE, sizeof *(MAP).begin); \
+    size_t NEW_BYTES = NEW_SIZE * sizeof *(MAP).begin; \
+    void *OLD_BEGIN = (MAP).begin; \
+    void *NEW_BEGIN = realloc (OLD_BEGIN, NEW_BYTES); \
     if (!NEW_BEGIN) \
       die ("out-of-memory initializing '" #MAP "' map"); \
-    void *OLD_BEGIN = (MAP).begin; \
     (MAP).begin = NEW_BEGIN; \
     (MAP).end = (MAP).begin + NEW_SIZE; \
-    if (OLD_BEGIN) { \
-      size_t OLD_BYTES = OLD_SIZE * sizeof *(MAP).begin; \
-      memcpy (NEW_BEGIN, OLD_BEGIN, OLD_BYTES); \
-    } \
+    size_t OLD_BYTES = OLD_SIZE * sizeof *(MAP).begin; \
+    size_t DELTA_BYTES = NEW_BYTES - OLD_BYTES; \
+    memset ((char*) NEW_BEGIN + OLD_BYTES, 0, DELTA_BYTES); \
   } while (0)
 
 #ifndef NDEBUG
