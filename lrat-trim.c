@@ -3,7 +3,7 @@ static const char *version = "0.0.1";
 // clang-format off
 
 static const char * usage =
-"usage: lrat-trim [ <option> ... ] <input-lrat-proof> [ <output-lrat-proof ]\n"
+"usage: lrat-trim [ <option> ... ] [ <input-cnf> ] <input-proof> [ <output-proof> ]\n"
 "\n"
 "where '<option>' is one of the following:\n"
 "\n"
@@ -16,9 +16,16 @@ static const char * usage =
 "\n"
 "  --version   print version only\n"
 "\n"
-"The input proof in LRAT format is parsed, trimmed and then written to the\n"
-"output file if the latter is specified.  Otherwise the proof is trimmed\n"
-"in memory and only statistics are produced.\n"
+"The input proof in LRAT format is parsed and trimmed and optionally written\n"
+"to the output proof file if it is specified.  Otherwise the proof is trimmed\n"
+"only in memory but produces trimming statistics.  If the input CNF in DIMACS\n"
+"format is also specified then the CNF is parsed before reading the LRAT\n"
+"proof and in addition the proof is checked after parsing and trimming.  If\n"
+"the CNF or the proof contain an empty clause, then proof checking is\n"
+"restricted to the trimmed proof.  Without empty clause however all input\n"
+"proof steps are checked.  If checking fails an error message is produced and\n"
+"the program aborts with a non-zero exit code.  If checking succeeds the exit\n"
+"code is zero. If further an empty clause was found 's VERIFIED' is printed.\n"
 ;
 
 // clang-format on
@@ -69,8 +76,18 @@ struct statistics {
   } original, trimmed;
 } statistics;
 
-static struct file input;
-static struct file output;
+// At-most four files set up during option parsing.
+
+static struct file files[4];
+static size_t size_files;
+
+// Current input and output file for writing and reading functions.
+
+static struct file *input, *output;
+
+struct {
+  struct file *input, *output;
+} cnf, proof;
 static int verbosity;
 
 static int *map;
@@ -186,7 +203,7 @@ static void wrn (const char *fmt, ...) {
 
 #define ADJUST(MAP, ID) \
   do { \
-    size_t NEEDED_SIZE = (size_t) (ID) + 1; \
+    size_t NEEDED_SIZE = (size_t)(ID) + 1; \
     size_t OLD_SIZE = SIZE (MAP); \
     if (OLD_SIZE >= NEEDED_SIZE) \
       break; \
@@ -202,7 +219,7 @@ static void wrn (const char *fmt, ...) {
     (MAP).end = (MAP).begin + NEW_SIZE; \
     size_t OLD_BYTES = OLD_SIZE * sizeof *(MAP).begin; \
     size_t DELTA_BYTES = NEW_BYTES - OLD_BYTES; \
-    memset ((char*) NEW_BEGIN + OLD_BYTES, 0, DELTA_BYTES); \
+    memset ((char *)NEW_BEGIN + OLD_BYTES, 0, DELTA_BYTES); \
   } while (0)
 
 #ifndef NDEBUG
@@ -337,7 +354,8 @@ static double average (double a, double b) { return b ? a / b : 0; }
 static double percent (double a, double b) { return average (100 * a, b); }
 
 static bool is_original_clause (int id) {
-  return !id || !first_clause_added_in_proof || id < first_clause_added_in_proof;
+  return !id || !first_clause_added_in_proof ||
+         id < first_clause_added_in_proof;
 }
 
 static bool mark_used (int id, int used_where) {
@@ -416,7 +434,8 @@ static void parse_proof () {
     int id = (ch - '0');
     while (isdigit (ch = read_char ())) {
       if (!id)
-	err ("unexpected digit '%c' after indentifier starting with '0'", ch);
+        err ("unexpected digit '%c' after indentifier starting with '0'",
+             ch);
       if (INT_MAX / 10 < id)
       LINE_IDENTIFIER_EXCEEDS_INT_MAX:
         err ("line identifier '%s' exceeds 'INT_MAX'",
@@ -573,18 +592,18 @@ static void parse_proof () {
       size_t bytes_literals = size_literals * sizeof (int);
       int *l = malloc (bytes_literals);
       if (!l) {
-	assert (size_literals);
-	die ("out-of-memory allocating literals of size %zu clause %d",
-	     size_literals - 1, id);
+        assert (size_literals);
+        die ("out-of-memory allocating literals of size %zu clause %d",
+             size_literals - 1, id);
       }
       memcpy (l, work.begin, bytes_literals);
       ADJUST (literals, id);
       literals.begin[id] = l;
       if (size_literals == 1) {
-	if (!empty_clause) {
-	  vrb ("found empty clause %d", id);
-	  empty_clause = id;
-	}
+        if (!empty_clause) {
+          vrb ("found empty clause %d", id);
+          empty_clause = id;
+        }
       }
 
       CLEAR (work);
@@ -704,8 +723,8 @@ static void trim_proof () {
       int *a = antecedents.begin[id];
       assert (a);
       for (int *p = a, other; (other = abs (*p)); p++)
-	if (!mark_used (other, id) && !is_original_clause (other))
-	  PUSH (work, other);
+        if (!mark_used (other, id) && !is_original_clause (other))
+          PUSH (work, other);
     }
   }
 
