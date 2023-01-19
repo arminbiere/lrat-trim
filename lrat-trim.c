@@ -818,10 +818,12 @@ int main (int argc, char **argv) {
     for (;;) {
       int where = used[id];
       if (where) {
-        assert (id == empty_clause || id < where);
-        links[id] = heads[where];
-        heads[where] = id;
-        map[id] = mapped;
+        if (id != empty_clause) {
+	  assert (id < where);
+	  links[id] = heads[where];
+	  heads[where] = id;
+	  map[id] = mapped;
+	}
         if (output.file) {
           write_int (mapped);
           int *l = literals.begin[id];
@@ -864,9 +866,8 @@ int main (int argc, char **argv) {
       if (id++ == empty_clause)
         break;
     }
-    assert (statistics.trimmed.cnf.deleted == statistics.trimmed.cnf.added);
-    assert (statistics.trimmed.proof.deleted ==
-            statistics.trimmed.proof.added);
+    assert (statistics.trimmed.cnf.added - statistics.trimmed.cnf.deleted <= 1);
+    assert (statistics.trimmed.proof.added - statistics.trimmed.proof.deleted <= 1);
   }
 
   if (output.file) {
