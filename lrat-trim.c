@@ -45,6 +45,7 @@ struct file {
   size_t bytes;
   size_t lines;
   int close;
+  int saved;
 };
 
 struct bool_stack {
@@ -76,9 +77,9 @@ struct statistics {
   } original, trimmed;
 } statistics;
 
-// At-most four files set up during option parsing.
+// At-most three files set up during option parsing.
 
-static struct file files[4];
+static struct file files[3];
 static size_t size_files;
 
 // Current input and output file for writing and reading functions.
@@ -121,9 +122,10 @@ static void die (const char *fmt, ...) {
 }
 
 static void err (const char *fmt, ...) {
+  assert (input);
   fprintf (stderr,
-           "lrat-trim: parse error in '%s' at line %zu: ", input.path,
-           input.lines + 1);
+           "lrat-trim: parse error in '%s' at line %zu: ", input->path,
+           input->lines + 1);
   va_list ap;
   va_start (ap, fmt);
   vfprintf (stderr, fmt, ap);
@@ -289,25 +291,43 @@ static void logging_suffix () {
 #endif
 
 static inline int read_char (void) {
-  int res = getc_unlocked (input.file);
+  assert (input);
+  assert (input->file);
+  int res = input->saved;
+  if (res == EOF)
+    res = getc_unlocked (input->file);
+  else
+    input->saved = EOF;
   if (res == '\r') {
-    res = getc_unlocked (input.file);
+    res = getc_unlocked (input->file);
     if (res != '\n')
       err ("carriage-return without following new-line");
   }
   if (res == '\n')
-    input.lines++;
+    input->lines++;
   if (res != EOF)
-    input.bytes++;
+    input->bytes++;
   return res;
 }
 
+static inline void unread_char (int ch) {
+  assert (ch != EOF);
+  assert (ch != '\n');
+  assert (input);
+  assert (input->file);
+  assert (input->saved == EOF);
+  input->saved = ch;
+  assert (input->bytes);
+  input->bytes--;
+}
+
 static inline void write_char (unsigned ch) {
-  assert (output.file);
-  fputc_unlocked (ch, output.file);
-  output.bytes++;
+  assert (output);
+  assert (output->file);
+  fputc_unlocked (ch, output->file);
+  output->bytes++;
   if (ch == '\n')
-    output.lines++;
+    output->lines++;
 }
 
 static inline void write_new_line () { write_char ('\n'); }
@@ -408,8 +428,9 @@ static const char *exceeds_int_max (int n, int ch) {
     buffer[i++] = ch;
   } while (i < size && isdigit (ch = read_char ()));
   if (ch == '\n') {
-    assert (input.lines);
-    input.lines--;
+    assert (input);
+    assert (input->lines);
+    input->lines--;
   }
   if (i == size) {
     assert (i + 3 < sizeof buffer);
@@ -422,8 +443,22 @@ static const char *exceeds_int_max (int n, int ch) {
   return buffer;
 }
 
+static void parse_cnf () {
+  input = cnf.input;
+  if (!input)
+    return;
+  wrn ("checking the input proof on a given CNF not implemented yet "
+       "(only trimming and writing the input proof working at this point");
+  assert (input->file);
+  if (input->close)
+    fclose (input->file);
+}
+
 static void parse_proof () {
-  msg ("reading proof from '%s'", input.path);
+  input = proof.input;
+  assert (input);
+  assert (input->path);
+  msg ("reading proof from '%s'", input->path);
   int ch, last_id = 0;
   for (;;) {
     ch = read_char ();
@@ -503,7 +538,8 @@ static void parse_proof () {
                  "was already deleted in deletion %d at line %zu",
                  other, id, d->id, d->line);
           }
-          size_t deleted_line = input.lines + 1;
+          assert (input);
+          size_t deleted_line = input->lines + 1;
           dbg ("marked clause %d to be deleted at line %zu in deletion %d",
                other, deleted_line, id);
           d->line = deleted_line;
@@ -685,8 +721,8 @@ static void parse_proof () {
     }
     last_id = id;
   }
-  if (input.close)
-    fclose (input.file);
+  if (input->close)
+    fclose (input->file);
 
   free (added.begin);
   free (deleted.begin);
@@ -694,8 +730,8 @@ static void parse_proof () {
   if (!empty_clause)
     wrn ("no empty clause added in input proof");
 
-  vrb ("read %zu lines with %zu bytes (%.0f MB)", input.lines, input.bytes,
-       input.bytes / (double)(1 << 20));
+  vrb ("read %zu lines with %zu bytes (%.0f MB)", input->lines,
+       input->bytes, input->bytes / (double)(1 << 20));
 
   msg ("original proof has %zu added and %zu deleted clauses",
        statistics.original.proof.added, statistics.original.proof.deleted);
@@ -742,34 +778,42 @@ static void trim_proof () {
 }
 
 static void open_output_proof () {
-  if (output.path) {
-    if (!strcmp (output.path, "-")) {
-      output.file = stdout;
-      output.path = "<stdout>";
-      assert (!output.close);
-    } else if (!(output.file = fopen (output.path, "w")))
-      die ("can not write output proof file '%s'", output.path);
-    else
-      output.close = 1;
-    msg ("writing proof to '%s'", output.path);
-  } else {
-    msg ("no output file specified");
-    assert (!output.file);
-  }
+  assert (!output);
+  output = proof.output;
+  assert (output);
+  assert (output->path);
+  if (!strcmp (output->path, "-")) {
+    output->file = stdout;
+    output->path = "<stdout>";
+    assert (!output->close);
+  } else if (!(output->file = fopen (output->path, "w")))
+    die ("can not write output proof file '%s'", output->path);
+  else
+    output->close = 1;
+  msg ("writing proof to '%s'", output->path);
 }
 
 static void close_output_proof () {
-  if (output.close)
-    fclose (output.file);
-  vrb ("wrote %zu lines with %zu bytes (%.0f MB)", output.lines,
-       output.bytes, output.bytes / (double)(1 << 20));
+  assert (output);
+  assert (proof.input);
+  assert (output == proof.output);
+  if (output->close)
+    fclose (output->file);
+  vrb ("wrote %zu lines with %zu bytes (%.0f MB)", output->lines,
+       output->bytes, output->bytes / (double)(1 << 20));
   msg ("trimmed %zu bytes (%.0f MB) to %zu bytes (%.0f MB) %.0f%%",
-       input.bytes, input.bytes / (double)(1 << 20), output.bytes,
-       output.bytes / (double)(1 << 20),
-       percent (output.bytes, input.bytes));
+       proof.input->bytes, proof.input->bytes / (double)(1 << 20),
+       output->bytes, output->bytes / (double)(1 << 20),
+       percent (output->bytes, proof.input->bytes));
+  output = 0;
 }
 
 static void write_non_empty_proof () {
+
+  assert (output);
+  assert (output->path);
+  assert (output->file);
+  assert (output == proof.output);
 
   assert (empty_clause > 0);
   size_t needed_clauses_size = (size_t)empty_clause + 1;
@@ -789,7 +833,7 @@ static void write_non_empty_proof () {
       links[id] = heads[where];
       heads[where] = id;
     } else {
-      if (output.file) {
+      if (output) {
         if (!statistics.trimmed.cnf.deleted) {
           write_int (first_clause_added_in_proof - 1);
           write_str (" d");
@@ -803,7 +847,7 @@ static void write_non_empty_proof () {
   }
 
   if (statistics.trimmed.cnf.deleted) {
-    if (output.file)
+    if (output)
       write_str (" 0\n");
 
     vrb ("deleting %zu original CNF clauses initially",
@@ -826,7 +870,7 @@ static void write_non_empty_proof () {
         heads[where] = id;
         map[id] = mapped;
       }
-      if (output.file) {
+      if (output) {
         write_int (mapped);
         int *l = literals.begin[id];
         assert (l);
@@ -845,7 +889,7 @@ static void write_non_empty_proof () {
       }
       int head = heads[id];
       if (head) {
-        if (output.file) {
+        if (output) {
           write_int (mapped);
           write_str (" d");
         }
@@ -854,13 +898,13 @@ static void write_non_empty_proof () {
             statistics.trimmed.cnf.deleted++;
           else
             statistics.trimmed.proof.deleted++;
-          if (output.file) {
+          if (output) {
             write_space ();
             write_int (map_id (link));
           }
           next = links[link];
         }
-        if (output.file)
+        if (output)
           write_str (" 0\n");
       }
       mapped++;
@@ -875,7 +919,7 @@ static void write_empty_proof () {
 }
 
 static void write_proof () {
-  if (!output.path)
+  if (!proof.output)
     return;
   open_output_proof ();
   if (empty_clause)
@@ -894,6 +938,15 @@ static void release () {
   release_ints_map (&literals);
   release_ints_map (&antecedents);
 #endif
+}
+
+static const char *numeral (size_t i) {
+  if (i == 0)
+    return "1st";
+  if (i == 1)
+    return "2nd";
+  assert (i == 2);
+  return "3rd";
 }
 
 static void options (int argc, char **argv) {
@@ -917,32 +970,62 @@ static void options (int argc, char **argv) {
       fputs (version, stdout), fputc ('\n', stdout), exit (0);
     else if (arg[0] == '-' && arg[1])
       die ("invalid option '%s' (try '-h')", arg);
-    else if (output.path)
-      die ("too many arguments '%s', '%s' and '%s' (try '-h')", input.path,
-           output.path, arg);
-    else if (input.path)
-      output.path = arg;
+    else if (size_files == 3)
+      die ("too many files '%s', '%s', '%s' and '%s' (try '-h')",
+           files[0].path, files[1].path, files[2].path, arg);
     else
-      input.path = arg;
+      files[size_files++].path = arg;
   }
 
-  if (!input.path)
-    die ("no input proof given (try '-h')");
+  if (!size_files)
+    die ("no input file given (try '-h')");
 
-  if (output.path && !strcmp (input.path, output.path) &&
-      strcmp (input.path, "-") && strcmp (input.path, "/dev/null"))
-    die ("input and output path are both '%s'", input.path);
+  for (size_t i = 0; i + 1 != size_files; i++)
+    if (strcmp (files[i].path, "-") && strcmp (files[i].path, "/dev/null"))
+      for (size_t j = i + 1; j != size_files; j++)
+        if (!strcmp (files[i].path, files[j].path))
+          die ("identical %s and %s file '%s'", numeral (i), numeral (j),
+               files[i].path);
 }
 
-static void open_input_proof () {
-  if (!strcmp (input.path, "-")) {
-    input.file = stdin;
-    input.path = "<stdin>";
-    assert (!input.close);
-  } else if (!(input.file = fopen (input.path, "r")))
-    die ("can not read input proof file '%s'", input.path);
+static struct file *read_file (struct file *file) {
+  assert (file->path);
+  if (!strcmp (file->path, "-")) {
+    file->file = stdin;
+    file->path = "<stdin>";
+    assert (!file->close);
+  } else if (!(file->file = fopen (file->path, "r")))
+    die ("can not read '%s'", file->path);
   else
-    input.close = 1;
+    file->close = 1;
+  file->saved = EOF;
+  return input = file;
+}
+
+static void open_input_files () {
+  assert (size_files);
+  if (size_files == 1)
+    proof.input = read_file (&files[0]);
+  else if (size_files == 2) {
+    read_file (&files[0]);
+    int ch = read_char ();
+    unread_char (ch);
+    assert (input == &files[0]);
+    if (ch == 'c' || ch == 'p') {
+      cnf.input = input;
+      proof.input = read_file (&files[1]);
+    } else {
+      proof.input = input;
+      proof.output = &files[1];
+    }
+  } else {
+    assert (size_files < 4);
+    cnf.input = read_file (&files[0]);
+    proof.input = read_file (&files[1]);
+    proof.output = &files[2];
+    if (size_files == 4)
+      cnf.output = &files[3];	// TODO unreachable at this point.
+  }
 }
 
 static void banner () {
@@ -960,8 +1043,9 @@ static void resources () {
 
 int main (int argc, char **argv) {
   options (argc, argv);
-  open_input_proof ();
+  open_input_files ();
   banner ();
+  parse_cnf ();
   parse_proof ();
   trim_proof ();
   write_proof ();
