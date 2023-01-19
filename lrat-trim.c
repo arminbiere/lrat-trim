@@ -871,8 +871,18 @@ static void write_proof () {
   close_output_proof ();
 }
 
-int main (int argc, char **argv) {
+static void release () {
+#ifndef NDEBUG
+  free (map);
+  free (links);
+  free (heads);
+  free (used);
+  release_ints_map (&literals);
+  release_ints_map (&antecedents);
+#endif
+}
 
+static void options (int argc, char ** argv) {
   for (int i = 1; i != argc; i++) {
     const char *arg = argv[i];
     if (!strcmp (arg, "-h")) {
@@ -908,14 +918,9 @@ int main (int argc, char **argv) {
   if (output.path && !strcmp (input.path, output.path) &&
       strcmp (input.path, "-") && strcmp (input.path, "/dev/null"))
     die ("input and output path are both '%s'", input.path);
+}
 
-  if (verbosity >= 0) {
-    printf ("c LRAT-TRIM Version %s trims LRAT proofs\n"
-            "c Copyright (c) 2023 Armin Biere University of Freiburg\n",
-            version);
-    fflush (stdout);
-  }
-
+static void open_input_proof () {
   if (!strcmp (input.path, "-")) {
     input.file = stdin;
     input.path = "<stdin>";
@@ -924,21 +929,29 @@ int main (int argc, char **argv) {
     die ("can not read input proof file '%s'", input.path);
   else
     input.close = 1;
+}
 
+static void banner () {
+  if (verbosity < 0)
+    return;
+  printf ("c LRAT-TRIM Version %s trims LRAT proofs\n"
+	  "c Copyright (c) 2023 Armin Biere University of Freiburg\n",
+	  version);
+  fflush (stdout);
+}
+
+static void resources () {
+  msg ("used %.2f seconds and %.0f MB", process_time (), mega_bytes ());
+}
+
+int main (int argc, char **argv) {
+  options (argc, argv);
+  open_input_proof ();
+  banner ();
   parse_proof ();
   trim_proof ();
   write_proof ();
-
-#ifndef NDEBUG
-  free (map);
-  free (links);
-  free (heads);
-  free (used);
-  release_ints_map (&literals);
-  release_ints_map (&antecedents);
-#endif
-
-  msg ("used %.2f seconds and %.0f MB", process_time (), mega_bytes ());
-
+  release ();
+  resources ();
   return 0;
 }
