@@ -318,7 +318,8 @@ static void logging_suffix () {
 
 static inline int read_char (void) {
   assert (input);
-  assert (input->file);
+  if (!input->file)
+    return EOF;
   int res = input->saved;
   if (res == EOF)
     res = getc_unlocked (input->file);
@@ -337,14 +338,14 @@ static inline int read_char (void) {
 }
 
 static inline void unread_char (int ch) {
-  assert (ch != EOF);
   assert (ch != '\n');
   assert (input);
-  assert (input->file);
   assert (input->saved == EOF);
   input->saved = ch;
-  assert (input->bytes);
-  input->bytes--;
+  if (ch != EOF) {
+    assert (input->bytes);
+    input->bytes--;
+  }
 }
 
 static inline void write_char (unsigned ch) {
@@ -1012,11 +1013,22 @@ static void options (int argc, char **argv) {
         if (!strcmp (files[i].path, files[j].path))
           die ("identical %s and %s file '%s'", numeral (i), numeral (j),
                files[i].path);
+
+  if (size_files > 2 && !strcmp (files[0].path, "-") &&
+      !strcmp (files[1].path, "-"))
+    die ("can not use '<stdin>' for both first two input files");
+
+  if (size_files == 4 && !strcmp (files[2].path, "-") &&
+      !strcmp (files[3].path, "-"))
+    die ("can not use '<stdout>' for both last two output files");
 }
 
 static struct file *read_file (struct file *file) {
   assert (file->path);
-  if (!strcmp (file->path, "-")) {
+  if (!strcmp (file->path, "/dev/null")) {
+    assert (!file->file);
+    assert (!file->close);
+  } else if (!strcmp (file->path, "-")) {
     file->file = stdin;
     file->path = "<stdin>";
     assert (!file->close);
