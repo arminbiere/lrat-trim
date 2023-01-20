@@ -318,7 +318,7 @@ static void logging_suffix () {
 
 #endif
 
-static inline int read_char (void) __attribute__((always_inline));
+static inline int read_char (void) __attribute__ ((always_inline));
 
 static inline int read_char (void) {
   assert (input);
@@ -369,6 +369,8 @@ static inline void write_str (const char *str) {
   for (const char *p = str; *p; p++)
     write_char (*p);
 }
+
+static inline void write_int (int i) __attribute__ ((always_inline));
 
 static inline void write_int (int i) {
   char buffer[16];
@@ -434,6 +436,8 @@ static inline bool marked_added (int id) {
   return added.begin[id];
 }
 
+static inline bool has_been_added (int id) __attribute__ ((always_inline));
+
 static inline bool has_been_added (int id) {
   assert (0 < id);
   return is_original_clause (id) || marked_added (id);
@@ -479,7 +483,8 @@ static void parse_cnf () {
   if (!input)
     return;
   wrn ("checking the input proof on a given CNF not implemented yet");
-  wrn ("(only trimming and writing the input proof supported at this point)");
+  wrn ("(only trimming and writing the input proof supported at this "
+       "point)");
   if (input->close)
     fclose (input->file);
 }
@@ -965,7 +970,8 @@ static void write_cnf () {
   if (!output)
     return;
   wrn ("writing the clausal core as CNF not implemented yet");
-  wrn ("(only trimming and writing the input proof supported at this point)");
+  wrn ("(only trimming and writing the input proof supported at this "
+       "point)");
   if (output->close)
     fclose (output->file);
 }
@@ -1088,13 +1094,13 @@ static void print_banner () {
           version);
 
   assert (proof.input);
-  const char * mode;
+  const char *mode;
   if (cnf.input) {
     if (proof.output) {
       if (cnf.output)
-	mode = "reading and writing both CNF and LRAT";
+        mode = "reading and writing both CNF and LRAT";
       else
-	mode = "reading CNF and LRAT and writing LRAT";
+        mode = "reading CNF and LRAT and writing LRAT";
     } else if (cnf.output)
       mode = "reading CNF and LRAT and writing CNF";
     else
