@@ -5,42 +5,45 @@ static const char *version = "0.0.1";
 static const char * usage =
 "usage: lrat-trim [ <option> ... ] <file> ...\n"
 "\n"
-"where '<option>' is one of the following\n"
+"where '<option> ...' is a potentially empty list of the following options\n"
 "\n"
-"  -h          print this command line option summary\n"
+"  -h             print this command line option summary\n"
 #ifdef LOGGING
-"  -l          print all messages including logging messages\n"
+"  -l             print all messages including logging messages\n"
 #endif
-"  -q          be quiet and do not print any messages\n" 
-"  -v          enable verbose messages\n"
+"  -q             be quiet and do not print any messages\n" 
+"  -v             enable verbose messages\n"
 "\n"
-"  --version   print version only\n"
+"  -no-trimming   disable trimming as described below\n"
+"  --version      print version only\n"
 "\n"
-#if 1
-"and '<file> ...' is a list of at most three files as follows:\n"
-#else
-"and '<file> ...' is a list of at most three files as follows:\n"
-#endif
+"and '<file> ...' is a non-empty list of at most four DIMACS and LRAT files:\n"
 "\n"
 "  <input-proof>\n"
 "  <input-proof> <output-proof>\n"
 "\n"
 "  <input-cnf> <input-proof> \n"
 "  <input-cnf> <input-proof> <output-proof>\n"
-#if 0
 "  <input-cnf> <input-proof> <output-proof> <output-cnf>\n"
-#endif
 "\n"
-"The input proof in LRAT format is parsed and trimmed and optionally written\n"
-"to the output proof file if it is specified.  Otherwise the proof is trimmed\n"
-"only in memory but produces trimming statistics.  If the input CNF in DIMACS\n"
-"format is also specified then the CNF is parsed before reading the LRAT\n"
-"proof and in addition the proof is checked after parsing and trimming.  If\n"
-"the CNF or the proof contains an empty clause, then proof checking is\n"
-"restricted to the trimmed proof.  Without empty clause however all input\n"
-"proof steps are checked.  If checking fails an error message is produced and\n"
-"the program aborts with a non-zero exit code.  If checking succeeds the exit\n"
-"code is zero. If further an empty clause was found 's VERIFIED' is printed.\n"
+"The required input proof in LRAT format is parsed and trimmed and\n"
+"optionally written to the output proof file if it is specified.  Otherwise\n"
+"the proof is trimmed only in memory producing trimming statistics.\n"
+"\n"
+"If an input CNF is also specified then it is assumed to be in DIMACS format\n"
+"and parsed before reading the LRAT proof.  Providing a CNF allows to check\n"
+"and not only trim a proof.  If checking fails an error message is produced\n"
+"and the program aborts with a non-zero exit code.  If checking succeeds\n"
+"the exit code is zero. If further an empty clause was found 's VERIFIED'\n"
+"is printed.\n"
+"\n"
+"If the CNF or the proof contains an empty clause, then proof checking is\n"
+"restricted to the trimmed proof.  Without empty clause, neither in the CNF\n"
+"nor in the proof, trimming is skipped and all proof steps are checked.\n"
+"The same effect can be achieved by using '--no-trimming', which has the\n"
+"additional benefit to enforce forward on-the-fly checking while parsing\n"
+"the proof. This mode allows to delete clauses eagerly and gives the chance\n"
+"to reduce memory usage substantially but can not write any output files.\n"
 ;
 
 // clang-format on
@@ -1039,7 +1042,7 @@ static void open_input_files () {
     proof.input = read_file (&files[1]);
     proof.output = &files[2];
     if (size_files == 4)
-      cnf.output = &files[3];	// TODO unreachable at this point.
+      cnf.output = &files[3]; // TODO unreachable at this point.
   }
 }
 
