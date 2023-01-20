@@ -44,6 +44,14 @@ static const char * usage =
 "additional benefit to enforce forward on-the-fly checking while parsing\n"
 "the proof. This mode allows to delete clauses eagerly and gives the chance\n"
 "to reduce memory usage substantially but can not write any output files.\n"
+"\n"
+"At most one of the input and one of the output files can be '-' which\n"
+"then reads the correponding input from '<stdin>' or writes to '<stdout>'\n"
+"respectively.  When two file arguments are given the first file is read\n"
+"and its format (LRAT or DIMACS) is determined by checking the first read\n"
+"character ('p' or 'c' gives DIMACS format), which then also determines\n"
+"the type of the second file as proof output or input.  Two files can\n"
+"not have the same specified file path except for '-' and '/dev/null'.\n"
 ;
 
 // clang-format on
