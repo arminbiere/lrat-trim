@@ -318,6 +318,8 @@ static void logging_suffix () {
 
 #endif
 
+static inline int read_char (void) __attribute__((always_inline));
+
 static inline int read_char (void) {
   assert (input);
   if (!input->file)
