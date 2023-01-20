@@ -322,13 +322,9 @@ static inline int read_char (void) __attribute__ ((always_inline));
 
 static inline int read_char (void) {
   assert (input);
-  if (!input->file)
-    return EOF;
-  int res = input->saved;
-  if (res == EOF)
-    res = getc_unlocked (input->file);
-  else
-    input->saved = EOF;
+  assert (input->file);
+  assert (input->saved == EOF);
+  int res = getc_unlocked (input->file);
   if (res == '\r') {
     res = getc_unlocked (input->file);
     if (res != '\n')
@@ -341,15 +337,14 @@ static inline int read_char (void) {
   return res;
 }
 
-static inline void unread_char (int ch) {
-  assert (ch != '\n');
+static int read_first_char (void) {
   assert (input);
-  assert (input->saved == EOF);
-  input->saved = ch;
-  if (ch != EOF) {
-    assert (input->bytes);
-    input->bytes--;
-  }
+  assert (input->file);
+  int res = input->saved;
+  if (res == EOF)
+    res = read_char ();
+  input->saved = EOF;
+  return res;
 }
 
 static inline void write_char (unsigned ch) {
@@ -494,11 +489,8 @@ static void parse_proof () {
   assert (input);
   assert (input->path);
   msg ("reading proof from '%s'", input->path);
-  int ch, last_id = 0;
-  for (;;) {
-    ch = read_char ();
-    if (ch == EOF)
-      break;
+  int ch = read_first_char (), last_id = 0;
+  while (ch != EOF) {
     if (!isdigit (ch))
       err ("expected digit as first character of line");
     int id = (ch - '0');
@@ -755,6 +747,7 @@ static void parse_proof () {
       statistics.original.proof.added++;
     }
     last_id = id;
+    ch = read_char ();
   }
   if (input->close)
     fclose (input->file);
@@ -1067,7 +1060,7 @@ static void open_input_files () {
   else if (size_files == 2) {
     read_file (&files[0]);
     int ch = read_char ();
-    unread_char (ch);
+    input->saved = ch;
     assert (input == &files[0]);
     if (ch == 'c' || ch == 'p') {
       cnf.input = input;
