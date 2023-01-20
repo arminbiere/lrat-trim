@@ -1,5 +1,7 @@
 # TODO
 
+- faster reading
+- faster writing
 - CNF parsing
 - checking of proof
 - during trimming do not keep any delete information
