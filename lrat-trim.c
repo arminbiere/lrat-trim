@@ -3,9 +3,9 @@ static const char *version = "0.0.1";
 // clang-format off
 
 static const char * usage =
-"usage: lrat-trim [ <option> ... ] [ <input-cnf> ] <input-proof> [ <output-proof> ]\n"
+"usage: lrat-trim [ <option> ... ] <file> ...\n"
 "\n"
-"where '<option>' is one of the following:\n"
+"where '<option>' is one of the following\n"
 "\n"
 "  -h          print this command line option summary\n"
 #ifdef LOGGING
@@ -16,12 +16,27 @@ static const char * usage =
 "\n"
 "  --version   print version only\n"
 "\n"
+#if 1
+"and '<file> ...' is a list of at most three files as follows:\n"
+#else
+"and '<file> ...' is a list of at most three files as follows:\n"
+#endif
+"\n"
+"  <input-proof>\n"
+"  <input-proof> <output-proof>\n"
+"\n"
+"  <input-cnf> <input-proof> \n"
+"  <input-cnf> <input-proof> <output-proof>\n"
+#if 0
+"  <input-cnf> <input-proof> <output-proof> <output-cnf>\n"
+#endif
+"\n"
 "The input proof in LRAT format is parsed and trimmed and optionally written\n"
 "to the output proof file if it is specified.  Otherwise the proof is trimmed\n"
 "only in memory but produces trimming statistics.  If the input CNF in DIMACS\n"
 "format is also specified then the CNF is parsed before reading the LRAT\n"
 "proof and in addition the proof is checked after parsing and trimming.  If\n"
-"the CNF or the proof contain an empty clause, then proof checking is\n"
+"the CNF or the proof contains an empty clause, then proof checking is\n"
 "restricted to the trimmed proof.  Without empty clause however all input\n"
 "proof steps are checked.  If checking fails an error message is produced and\n"
 "the program aborts with a non-zero exit code.  If checking succeeds the exit\n"
