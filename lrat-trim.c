@@ -46,12 +46,14 @@ static const char * usage =
 "to reduce memory usage substantially but can not write any output files.\n"
 "\n"
 "At most one of the input and one of the output files can be '-' which\n"
-"then reads the correponding input from '<stdin>' or writes to '<stdout>'\n"
+"then reads the corresponding input from '<stdin>' or writes to '<stdout>'\n"
 "respectively.  When two file arguments are given the first file is read\n"
 "and its format (LRAT or DIMACS) is determined by checking the first read\n"
 "character ('p' or 'c' gives DIMACS format), which then also determines\n"
 "the type of the second file as proof output or input.  Two files can\n"
 "not have the same specified file path except for '-' and '/dev/null'.\n"
+"The latter is a hard-coded file name and will not actually open and\n"
+"and write to '/dev/null' (whether it exists or not on your system).\n"
 ;
 
 // clang-format on
@@ -105,7 +107,7 @@ struct statistics {
 
 // At-most three files set up during option parsing.
 
-static struct file files[3];
+static struct file files[4];
 static size_t size_files;
 
 // Current input and output file for writing and reading functions.
@@ -474,9 +476,8 @@ static void parse_cnf () {
   input = cnf.input;
   if (!input)
     return;
-  wrn ("checking the input proof on a given CNF not implemented yet "
-       "(only trimming and writing the input proof working at this point");
-  assert (input->file);
+  wrn ("checking the input proof on a given CNF not implemented yet");
+  wrn ("(only trimming and writing the input proof supported at this point)");
   if (input->close)
     fclose (input->file);
 }
@@ -804,20 +805,20 @@ static void trim_proof () {
   free (work.begin);
 }
 
-static void open_output_proof () {
-  assert (!output);
-  output = proof.output;
-  assert (output);
-  assert (output->path);
-  if (!strcmp (output->path, "-")) {
-    output->file = stdout;
-    output->path = "<stdout>";
-    assert (!output->close);
-  } else if (!(output->file = fopen (output->path, "w")))
-    die ("can not write output proof file '%s'", output->path);
+static void write_file (struct file *file) {
+  assert (file->path);
+  if (!strcmp (file->path, "/dev/null")) {
+    assert (!file->file);
+    assert (!file->close);
+  } else if (!strcmp (file->path, "-")) {
+    file->file = stdout;
+    file->path = "<stdout>";
+    assert (!file->close);
+  } else if (!(file->file = fopen (file->path, "w")))
+    die ("can not write '%s'", file->path);
   else
-    output->close = 1;
-  msg ("writing proof to '%s'", output->path);
+    file->close = 1;
+  output = file;
 }
 
 static void close_output_proof () {
@@ -948,12 +949,23 @@ static void write_empty_proof () {
 static void write_proof () {
   if (!proof.output)
     return;
-  open_output_proof ();
+  write_file (proof.output);
+  msg ("writing proof to '%s'", output->path);
   if (empty_clause)
     write_non_empty_proof ();
   else
     write_empty_proof ();
   close_output_proof ();
+}
+
+static void write_cnf () {
+  output = cnf.output;
+  if (!output)
+    return;
+  wrn ("writing the clausal core as CNF not implemented yet");
+  wrn ("(only trimming and writing the input proof supported at this point)");
+  if (output->close)
+    fclose (output->file);
 }
 
 static void release () {
@@ -997,7 +1009,7 @@ static void options (int argc, char **argv) {
       fputs (version, stdout), fputc ('\n', stdout), exit (0);
     else if (arg[0] == '-' && arg[1])
       die ("invalid option '%s' (try '-h')", arg);
-    else if (size_files == 3)
+    else if (size_files == 4)
       die ("too many files '%s', '%s', '%s' and '%s' (try '-h')",
            files[0].path, files[1].path, files[2].path, arg);
     else
@@ -1062,16 +1074,36 @@ static void open_input_files () {
     proof.input = read_file (&files[1]);
     proof.output = &files[2];
     if (size_files == 4)
-      cnf.output = &files[3]; // TODO unreachable at this point.
+      cnf.output = &files[3];
   }
 }
 
-static void banner () {
+static void print_banner () {
   if (verbosity < 0)
     return;
   printf ("c LRAT-TRIM Version %s trims LRAT proofs\n"
           "c Copyright (c) 2023 Armin Biere University of Freiburg\n",
           version);
+
+  assert (proof.input);
+  const char * mode;
+  if (cnf.input) {
+    if (proof.output) {
+      if (cnf.output)
+	mode = "reading and writing both CNF and LRAT";
+      else
+	mode = "reading CNF and LRAT and writing LRAT";
+    } else if (cnf.output)
+      mode = "reading CNF and LRAT and writing CNF";
+    else
+      mode = "reading CNF and LRAT";
+  } else {
+    if (proof.output)
+      mode = "reading and writing LRAT";
+    else
+      mode = "only reading LRAT";
+  }
+  printf ("c %s file%s\n", mode, size_files > 1 ? "s" : "");
   fflush (stdout);
 }
 
@@ -1082,11 +1114,12 @@ static void resources () {
 int main (int argc, char **argv) {
   options (argc, argv);
   open_input_files ();
-  banner ();
+  print_banner ();
   parse_cnf ();
   parse_proof ();
   trim_proof ();
   write_proof ();
+  write_cnf ();
   release ();
   resources ();
   return 0;
