@@ -404,12 +404,12 @@ static double mega_bytes (void) {
 static double average (double a, double b) { return b ? a / b : 0; }
 static double percent (double a, double b) { return average (100 * a, b); }
 
-static bool is_original_clause (int id) {
+static inline bool is_original_clause (int id) {
   return !id || !first_clause_added_in_proof ||
          id < first_clause_added_in_proof;
 }
 
-static bool mark_used (int id, int used_where) {
+static inline bool mark_used (int id, int used_where) {
   assert (0 < id);
   assert (0 < used_where);
   int *w = used + id;
@@ -427,14 +427,14 @@ static bool mark_used (int id, int used_where) {
   return false;
 }
 
-static bool marked_added (int id) {
+static inline bool marked_added (int id) {
   assert (0 < id);
   if (id >= SIZE (added))
     return false;
   return added.begin[id];
 }
 
-static bool has_been_added (int id) {
+static inline bool has_been_added (int id) {
   assert (0 < id);
   return is_original_clause (id) || marked_added (id);
 }
