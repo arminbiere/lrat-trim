@@ -1,4 +1,4 @@
-static const char *version = "0.0.1";
+static const char *version = "0.0.2";
 
 // clang-format off
 
@@ -53,7 +53,6 @@ static const char * usage =
 "input.  Two files can not have the same specified file path except for '-'\n"
 "and '/dev/null'.  The latter is a hard-coded name and will not actually be\n"
 "opened nor written to '/dev/null' (whether it exists or not on the system).\n"
-
 ;
 
 // clang-format on
@@ -400,9 +399,26 @@ static int read_first_char (void) {
   return res;
 }
 
+static void flush_buffer () {
+  assert (output.file);
+  size_t bytes = buffer.pos;
+  if (!bytes)
+    return;
+  size_t written = fwrite (buffer.chars, 1, bytes, output.file);
+  if (written != buffer.pos) {
+    if (output.path)
+      die ("flushing %zu bytes of write buffer to '%s' failed", bytes,
+           output.path);
+    else
+      die ("flushing %zu bytes of write buffer failed", bytes);
+  }
+  buffer.pos = 0;
+}
+
 static inline void write_char (unsigned ch) {
-  if (output.file)
-    fputc_unlocked (ch, output.file);
+  if (buffer.pos == size_buffer)
+    flush_buffer ();
+  buffer.chars[buffer.pos++] = ch;
   output.bytes++;
   if (ch == '\n')
     output.lines++;
@@ -417,10 +433,23 @@ static inline void write_str (const char *str) {
 
 static inline void write_int (int i) __attribute__ ((always_inline));
 
+static char int_buffer[16];
+
 static inline void write_int (int i) {
-  char buffer[16];
-  sprintf (buffer, "%d", i);
-  write_str (buffer);
+  if (i) {
+    char *p = int_buffer + sizeof int_buffer - 1;
+    assert (!*p);
+    assert (i != INT_MIN);
+    unsigned tmp = abs (i);
+    while (tmp) {
+      *--p = '0' + (tmp % 10);
+      tmp /= 10;
+    }
+    if (i < 0)
+      *--p = '-';
+    write_str (p);
+  } else
+    write_char ('0');
 }
 
 #include <sys/resource.h>
@@ -544,8 +573,7 @@ static void parse_cnf () {
     return;
   input = *cnf.input;
   wrn ("checking the input proof on a given CNF not implemented yet");
-  wrn ("(only trimming and writing the input proof supported at this "
-       "point)");
+  wrn ("(only trimming and writing the input proof");
   if (input.close)
     fclose (input.file);
   *cnf.input = input;
@@ -566,7 +594,7 @@ static void parse_proof () {
     int id = (ch - '0');
     while (ISDIGIT (ch = read_char ())) {
       if (!id)
-        err ("unexpected digit '%c' after indentifier starting with '0'",
+        err ("unexpected digit '%c' after identifier starting with '0'",
              ch);
       if (INT_MAX / 10 < id)
       LINE_IDENTIFIER_EXCEEDS_INT_MAX:
@@ -820,6 +848,7 @@ static void parse_proof () {
   }
   if (input.close)
     fclose (input.file);
+  *proof.input = input;
 
   free (added.begin);
   free (deleted.begin);
@@ -900,7 +929,8 @@ static struct file *write_file (struct file *file) {
 }
 
 static void close_output_proof () {
-  assert (proof.input);
+  assert (proof.output);
+  flush_buffer ();
   if (output.close)
     fclose (output.file);
   *proof.output = output;
@@ -1015,6 +1045,7 @@ static void write_proof () {
   vrb ("starting writing proof after %.2f seconds", start);
   if (!proof.output)
     return;
+  buffer.pos = 0;
   output = *write_file (proof.output);
   msg ("writing proof to '%s'", output.path);
   if (empty_clause)
@@ -1031,9 +1062,8 @@ static void write_cnf () {
   if (!cnf.output)
     return;
   output = *cnf.output;
-  wrn ("writing the clausal core as CNF not implemented yet");
-  wrn ("(only trimming and writing the input proof supported at this "
-       "point)");
+  wrn ("writing the clausal core as CNF is not implemented yet");
+  wrn ("(only trimming and writing the input proof)");
   if (output.close)
     fclose (output.file);
   *cnf.output = output;
