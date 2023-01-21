@@ -112,7 +112,7 @@ static size_t size_files;
 
 // Current input and output file for writing and reading functions.
 
-static struct file *input, *output;
+static struct file input, output;
 
 struct {
   struct file *input, *output;
@@ -150,10 +150,10 @@ static void die (const char *fmt, ...) {
 }
 
 static void err (const char *fmt, ...) {
-  assert (input);
+  assert (input.path);
   fprintf (stderr,
-           "lrat-trim: parse error in '%s' at line %zu: ", input->path,
-           input->lines + 1);
+           "lrat-trim: parse error in '%s' at line %zu: ", input.path,
+           input.lines + 1);
   va_list ap;
   va_start (ap, fmt);
   vfprintf (stderr, fmt, ap);
@@ -321,39 +321,36 @@ static void logging_suffix () {
 static inline int read_char (void) __attribute__ ((always_inline));
 
 static inline int read_char (void) {
-  assert (input);
-  assert (input->file);
-  assert (input->saved == EOF);
-  int res = getc_unlocked (input->file);
+  assert (input.file);
+  assert (input.saved == EOF);
+  int res = getc_unlocked (input.file);
   if (res == '\r') {
-    res = getc_unlocked (input->file);
+    res = getc_unlocked (input.file);
     if (res != '\n')
       err ("carriage-return without following new-line");
   }
   if (res == '\n')
-    input->lines++;
+    input.lines++;
   if (res != EOF)
-    input->bytes++;
+    input.bytes++;
   return res;
 }
 
 static int read_first_char (void) {
-  assert (input);
-  assert (input->file);
-  int res = input->saved;
+  assert (input.file);
+  int res = input.saved;
   if (res == EOF)
     res = read_char ();
-  input->saved = EOF;
+  input.saved = EOF;
   return res;
 }
 
 static inline void write_char (unsigned ch) {
-  assert (output);
-  assert (output->file);
-  fputc_unlocked (ch, output->file);
-  output->bytes++;
+  assert (output.file);
+  fputc_unlocked (ch, output.file);
+  output.bytes++;
   if (ch == '\n')
-    output->lines++;
+    output.lines++;
 }
 
 static inline void write_new_line () { write_char ('\n'); }
@@ -464,9 +461,8 @@ static const char *exceeds_int_max (int n, int ch) {
     buffer[i++] = ch;
   } while (i < size && ISDIGIT (ch = read_char ()));
   if (ch == '\n') {
-    assert (input);
-    assert (input->lines);
-    input->lines--;
+    assert (input.lines);
+    input.lines--;
   }
   if (i == size) {
     assert (i + 3 < sizeof buffer);
@@ -480,21 +476,22 @@ static const char *exceeds_int_max (int n, int ch) {
 }
 
 static void parse_cnf () {
-  input = cnf.input;
-  if (!input)
+  if (!cnf.input)
     return;
+  input = *cnf.input;
   wrn ("checking the input proof on a given CNF not implemented yet");
   wrn ("(only trimming and writing the input proof supported at this "
        "point)");
-  if (input->close)
-    fclose (input->file);
+  if (input.close)
+    fclose (input.file);
+  *cnf.input = input;
 }
 
 static void parse_proof () {
-  input = proof.input;
-  assert (input);
-  assert (input->path);
-  msg ("reading proof from '%s'", input->path);
+  assert (proof.input);
+  input = *proof.input;
+  assert (input.path);
+  msg ("reading proof from '%s'", input.path);
   int ch = read_first_char (), last_id = 0;
   while (ch != EOF) {
     if (!isdigit (ch))
@@ -571,8 +568,7 @@ static void parse_proof () {
                  "was already deleted in deletion %d at line %zu",
                  other, id, d->id, d->line);
           }
-          assert (input);
-          size_t deleted_line = input->lines + 1;
+          size_t deleted_line = input.lines + 1;
           dbg ("marked clause %d to be deleted at line %zu in deletion %d",
                other, deleted_line, id);
           d->line = deleted_line;
@@ -755,8 +751,8 @@ static void parse_proof () {
     last_id = id;
     ch = read_char ();
   }
-  if (input->close)
-    fclose (input->file);
+  if (input.close)
+    fclose (input.file);
 
   free (added.begin);
   free (deleted.begin);
@@ -764,8 +760,8 @@ static void parse_proof () {
   if (!empty_clause)
     wrn ("no empty clause added in input proof");
 
-  vrb ("read %zu lines with %zu bytes (%.0f MB)", input->lines,
-       input->bytes, input->bytes / (double)(1 << 20));
+  vrb ("read %zu lines with %zu bytes (%.0f MB)", input.lines, input.bytes,
+       input.bytes / (double)(1 << 20));
 
   msg ("original proof has %zu added and %zu deleted clauses",
        statistics.original.proof.added, statistics.original.proof.deleted);
@@ -811,7 +807,7 @@ static void trim_proof () {
   free (work.begin);
 }
 
-static void write_file (struct file *file) {
+static struct file *write_file (struct file *file) {
   assert (file->path);
   if (!strcmp (file->path, "/dev/null")) {
     assert (!file->file);
@@ -824,30 +820,26 @@ static void write_file (struct file *file) {
     die ("can not write '%s'", file->path);
   else
     file->close = 1;
-  output = file;
+  return file;
 }
 
 static void close_output_proof () {
-  assert (output);
   assert (proof.input);
-  assert (output == proof.output);
-  if (output->close)
-    fclose (output->file);
-  vrb ("wrote %zu lines with %zu bytes (%.0f MB)", output->lines,
-       output->bytes, output->bytes / (double)(1 << 20));
+  if (output.close)
+    fclose (output.file);
+  *proof.output = output;
+  vrb ("wrote %zu lines with %zu bytes (%.0f MB)", output.lines,
+       output.bytes, output.bytes / (double)(1 << 20));
   msg ("trimmed %zu bytes (%.0f MB) to %zu bytes (%.0f MB) %.0f%%",
        proof.input->bytes, proof.input->bytes / (double)(1 << 20),
-       output->bytes, output->bytes / (double)(1 << 20),
-       percent (output->bytes, proof.input->bytes));
-  output = 0;
+       proof.output->bytes, proof.output->bytes / (double)(1 << 20),
+       percent (proof.output->bytes, proof.input->bytes));
 }
 
 static void write_non_empty_proof () {
 
-  assert (output);
-  assert (output->path);
-  assert (output->file);
-  assert (output == proof.output);
+  assert (output.path);
+  assert (output.file);
 
   assert (empty_clause > 0);
   size_t needed_clauses_size = (size_t)empty_clause + 1;
@@ -867,22 +859,19 @@ static void write_non_empty_proof () {
       links[id] = heads[where];
       heads[where] = id;
     } else {
-      if (output) {
-        if (!statistics.trimmed.cnf.deleted) {
-          write_int (first_clause_added_in_proof - 1);
-          write_str (" d");
-        }
-        write_space ();
-        write_int (id);
+      if (!statistics.trimmed.cnf.deleted) {
+        write_int (first_clause_added_in_proof - 1);
+        write_str (" d");
       }
+      write_space ();
+      write_int (id);
       statistics.trimmed.cnf.deleted++;
       statistics.trimmed.cnf.added++;
     }
   }
 
   if (statistics.trimmed.cnf.deleted) {
-    if (output)
-      write_str (" 0\n");
+    write_str (" 0\n");
 
     vrb ("deleting %zu original CNF clauses initially",
          statistics.trimmed.cnf.deleted);
@@ -904,42 +893,35 @@ static void write_non_empty_proof () {
         heads[where] = id;
         map[id] = mapped;
       }
-      if (output) {
-        write_int (mapped);
-        int *l = literals.begin[id];
-        assert (l);
-        for (const int *p = l; *p; p++)
-          write_space (), write_int (*p);
-        write_str (" 0");
-        int *a = antecedents.begin[id];
-        assert (a);
-        for (const int *p = a; *p; p++) {
-          write_space ();
-          int other = *p;
-          assert (abs (other) < id);
-          write_int (map_id (other));
-        }
-        write_str (" 0\n");
+      write_int (mapped);
+      int *l = literals.begin[id];
+      assert (l);
+      for (const int *p = l; *p; p++)
+        write_space (), write_int (*p);
+      write_str (" 0");
+      int *a = antecedents.begin[id];
+      assert (a);
+      for (const int *p = a; *p; p++) {
+        write_space ();
+        int other = *p;
+        assert (abs (other) < id);
+        write_int (map_id (other));
       }
+      write_str (" 0\n");
       int head = heads[id];
       if (head) {
-        if (output) {
-          write_int (mapped);
-          write_str (" d");
-        }
+        write_int (mapped);
+        write_str (" d");
         for (int link = head, next; link; link = next) {
           if (is_original_clause (link))
             statistics.trimmed.cnf.deleted++;
           else
             statistics.trimmed.proof.deleted++;
-          if (output) {
-            write_space ();
-            write_int (map_id (link));
-          }
+          write_space ();
+          write_int (map_id (link));
           next = links[link];
         }
-        if (output)
-          write_str (" 0\n");
+        write_str (" 0\n");
       }
       mapped++;
     }
@@ -955,8 +937,8 @@ static void write_empty_proof () {
 static void write_proof () {
   if (!proof.output)
     return;
-  write_file (proof.output);
-  msg ("writing proof to '%s'", output->path);
+  output = *write_file (proof.output);
+  msg ("writing proof to '%s'", output.path);
   if (empty_clause)
     write_non_empty_proof ();
   else
@@ -965,14 +947,15 @@ static void write_proof () {
 }
 
 static void write_cnf () {
-  output = cnf.output;
-  if (!output)
+  if (!cnf.output)
     return;
+  output = *cnf.output;
   wrn ("writing the clausal core as CNF not implemented yet");
   wrn ("(only trimming and writing the input proof supported at this "
        "point)");
-  if (output->close)
-    fclose (output->file);
+  if (output.close)
+    fclose (output.file);
+  *cnf.output = output;
 }
 
 static void release () {
@@ -1056,7 +1039,7 @@ static struct file *read_file (struct file *file) {
   else
     file->close = 1;
   file->saved = EOF;
-  return input = file;
+  return file;
 }
 
 static void open_input_files () {
@@ -1064,15 +1047,15 @@ static void open_input_files () {
   if (size_files == 1)
     proof.input = read_file (&files[0]);
   else if (size_files == 2) {
-    read_file (&files[0]);
+    struct file * file = &files[0];
+    input = *read_file (file);
     int ch = read_char ();
-    input->saved = ch;
-    assert (input == &files[0]);
+    file->saved = ch;
     if (ch == 'c' || ch == 'p') {
-      cnf.input = input;
+      cnf.input = file;
       proof.input = read_file (&files[1]);
     } else {
-      proof.input = input;
+      proof.input = file;
       proof.output = &files[1];
     }
   } else {
