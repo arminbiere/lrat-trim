@@ -7,15 +7,14 @@ static const char * usage =
 "\n"
 "where '<option> ...' is a potentially empty list of the following options\n"
 "\n"
-"  -h             print this command line option summary\n"
+"  -h | --help           print this command line option summary\n"
 #ifdef LOGGING
-"  -l             print all messages including logging messages\n"
+"  -l | --log[ging]      print all messages including logging messages\n"
 #endif
-"  -q             be quiet and do not print any messages\n" 
-"  -v             enable verbose messages\n"
-"\n"
-"  -no-trimming   disable trimming as described below\n"
-"  --version      print version only\n"
+"  -n | --no-trim[ming]  disable trimming as described below\n"
+"  -q | --quiet          be quiet and do not print any messages\n" 
+"  -v | --verbose        enable verbose messages\n"
+"  -V | --version        print version only\n"
 "\n"
 "and '<file> ...' is a non-empty list of at most four DIMACS and LRAT files:\n"
 "\n"
@@ -45,15 +44,15 @@ static const char * usage =
 "allows to delete clauses eagerly and gives the chance to reduce memory\n"
 "usage substantially.  Without trimming no output files are written.\n"
 "\n"
-"At most one of the input and one of the output files can be '-' which\n"
-"then reads the corresponding input from '<stdin>' or writes to '<stdout>'\n"
-"respectively.  When two file arguments are given the first file is read\n"
-"and its format (LRAT or DIMACS) is determined by checking the first read\n"
-"character ('p' or 'c' gives DIMACS format), which then also determines\n"
-"the type of the second file as proof output or input.  Two files can\n"
-"not have the same specified file path except for '-' and '/dev/null'.\n"
-"The latter is a hard-coded file name and will not actually open and write\n"
-"to '/dev/null' (whether it exists or not on your system).\n"
+"At most one of the input path names can be '-' which leads to reading the\n"
+"corresponding input from '<stdin>'.  Similarly using '-' for one of the\n"
+"outputs writes to '<stdout>'.  When exactly two files are given the first\n"
+"file is opened and read first and its format (LRAT or DIMACS) is determined\n"
+"by checking the first read character ('p' or 'c' gives DIMACS format).\n"
+"This then also determines the type of the second file as proof output or\n"
+"input.  Two files can not have the same specified file path except for '-'\n"
+"and '/dev/null'.  The latter is a hard-coded name and will not actually be\n"
+"opened nor written to '/dev/null' (whether it exists or not on the system).\n"
 
 ;
 
@@ -123,6 +122,8 @@ static struct file input, output;
 struct {
   struct file *input, *output;
 } cnf, proof;
+
+static const char *no_trimming;
 static int verbosity;
 
 static int *map;
@@ -987,21 +988,23 @@ static const char *numeral (size_t i) {
 static void options (int argc, char **argv) {
   for (int i = 1; i != argc; i++) {
     const char *arg = argv[i];
-    if (!strcmp (arg, "-h")) {
+    if (!strcmp (arg, "-h") || !strcmp (arg, "--help")) {
       fputs (usage, stdout);
       exit (0);
-    } else if (!strcmp (arg, "-l"))
+    } else if (!strcmp (arg, "-l") || !strcmp (arg, "--log") || !strcmp (arg, "--logging"))
 #ifdef LOGGING
       verbosity = INT_MAX;
 #else
       die ("invalid option '-l' (build without logging support)");
 #endif
-    else if (!strcmp (arg, "-q"))
+    else if (!strcmp (arg, "-q") || !strcmp (arg, "--quiet"))
       verbosity = -1;
-    else if (!strcmp (arg, "-v")) {
+    else if (!strcmp (arg, "-v") || !strcmp (arg, "--verbose")) {
       if (verbosity <= 0)
         verbosity = 1;
-    } else if (!strcmp (arg, "--version"))
+    } else if (!strcmp (arg, "--no-trimming") || !strcmp (arg, "--no-trim"))
+      no_trimming = arg;
+    else if (!strcmp (arg, "-V") || !strcmp (arg, "--version"))
       fputs (version, stdout), fputc ('\n', stdout), exit (0);
     else if (arg[0] == '-' && arg[1])
       die ("invalid option '%s' (try '-h')", arg);
@@ -1014,6 +1017,9 @@ static void options (int argc, char **argv) {
 
   if (!size_files)
     die ("no input file given (try '-h')");
+
+  if (size_files > 2 && no_trimming)
+    die ("can not write to '%s' with '%s", files[2].path, no_trimming);
 
   for (size_t i = 0; i + 1 != size_files; i++)
     if (strcmp (files[i].path, "-") && strcmp (files[i].path, "/dev/null"))
@@ -1062,6 +1068,8 @@ static void open_input_files () {
       proof.input = read_file (&files[1]);
     } else {
       proof.input = file;
+      if (no_trimming)
+        die ("can not write to '%s' with '%s'", files[1].path, no_trimming);
       proof.output = &files[1];
     }
   } else {
