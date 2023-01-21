@@ -325,42 +325,88 @@ static void logging_suffix () {
 
 #endif
 
+// Having a statically allocated read buffer allows to inline more character
+// reading code into integer parsing routines and thus speed up overall
+// parsing time substantially (saw 30% improvement).
+
+#define size_buffer (1u << 20)
+
+struct buffer {
+  char chars[size_buffer];
+  size_t pos, end;
+} buffer;
+
+static size_t fill_buffer () {
+  assert (input.file);
+  buffer.pos = 0;
+  buffer.end = fread (buffer.chars, 1, size_buffer, input.file);
+  return buffer.end;
+}
+
+// These three functions were not inlined with gcc-11 but should be despite
+// having declared them as 'inline'.
+
+static inline int read_buffer (void) __attribute__ ((always_inline));
+static inline void count_read (int ch) __attribute__ ((always_inline));
 static inline int read_char (void) __attribute__ ((always_inline));
+
+static inline int read_buffer (void) {
+  if (buffer.pos == buffer.end && !fill_buffer ())
+    return EOF;
+  return buffer.chars[buffer.pos++];
+}
+
+static inline void count_read (int ch) {
+  if (ch == '\n')
+    input.lines++;
+  if (ch != EOF)
+    input.bytes++;
+}
 
 static inline int read_char (void) {
   assert (input.file);
   assert (input.saved == EOF);
-  int res = getc_unlocked (input.file);
+  int res = read_buffer ();
   if (res == '\r') {
-    res = getc_unlocked (input.file);
+    res = read_buffer ();
     if (res != '\n')
       err ("carriage-return without following new-line");
   }
-  if (res == '\n')
-    input.lines++;
-  if (res != EOF)
-    input.bytes++;
+  count_read (res);
   return res;
 }
+
+// We only need a look-ahead for the very first byte to determined whether
+// the first input file is a DIMACS file or not (if exactly two files are
+// specified).  In both cases we save this very first character as 'saved'
+// in the input file and then when coming back to parsing this file
+// will give back this saved character as first read character.
+
+// Note that statistics of the file are adjusted during reading the
+// saved character the firs time do not need to be updated here again.
+
+// Originally we simply only had one 'read_char' function, but factoring out
+// this rare situation and restricting it to the beginning of parsing helped
+// the compiler to produce better code for the hot-stop which merges the
+// code of the inlined 'read_char' and 'isdigit'.
 
 static int read_first_char (void) {
   assert (input.file);
   int res = input.saved;
   if (res == EOF)
     res = read_char ();
-  input.saved = EOF;
+  else
+    input.saved = EOF;
   return res;
 }
 
 static inline void write_char (unsigned ch) {
-  assert (output.file);
-  fputc_unlocked (ch, output.file);
+  if (output.file)
+    fputc_unlocked (ch, output.file);
   output.bytes++;
   if (ch == '\n')
     output.lines++;
 }
-
-static inline void write_new_line () { write_char ('\n'); }
 
 static inline void write_space () { write_char (' '); }
 
@@ -451,6 +497,17 @@ static int map_id (int id) {
   return res;
 }
 
+// Apparently the hot-spot of the parser is checking the loop condition for
+// integer parsing which reads the next character from an input file and
+// then asks 'isdigit' whether the integer parsed at this point should be
+// extended by another digit or the first character (space or new-line)
+// after the integer has been reached.  It seems that the claimed fast
+// 'isdigit' from 'libc', which we assume is implemented by a table look-up,
+// prevents some local compiler optimization as soon the character reading
+// code is also inlined (which even for 'getc_unlocked' happens though).
+// Using the good old range based checked (assuming an ASCII encoding) seems
+// to help the compiler to produce better code (around 5% faster).
+
 #define ISDIGIT faster_than_default_isdigit
 
 static inline bool faster_than_default_isdigit (int ch) {
@@ -497,9 +554,10 @@ static void parse_cnf () {
 static void parse_proof () {
   assert (proof.input);
   input = *proof.input;
-  assert (input.path);
   msg ("reading proof from '%s'", input.path);
-  int ch = read_first_char (), last_id = 0;
+  fill_buffer ();
+  int last_id = 0;
+  int ch = read_first_char ();
   while (ch != EOF) {
     if (!isdigit (ch))
       err ("expected digit as first character of line");
@@ -991,7 +1049,8 @@ static void options (int argc, char **argv) {
     if (!strcmp (arg, "-h") || !strcmp (arg, "--help")) {
       fputs (usage, stdout);
       exit (0);
-    } else if (!strcmp (arg, "-l") || !strcmp (arg, "--log") || !strcmp (arg, "--logging"))
+    } else if (!strcmp (arg, "-l") || !strcmp (arg, "--log") ||
+               !strcmp (arg, "--logging"))
 #ifdef LOGGING
       verbosity = INT_MAX;
 #else
@@ -1061,8 +1120,10 @@ static void open_input_files () {
   else if (size_files == 2) {
     struct file *file = &files[0];
     input = *read_file (file);
-    int ch = read_char ();
-    file->saved = ch;
+    int ch = getc (input.file);
+    count_read (ch);
+    input.saved = ch;
+    *file = input;
     if (ch == 'c' || ch == 'p') {
       cnf.input = file;
       proof.input = read_file (&files[1]);
