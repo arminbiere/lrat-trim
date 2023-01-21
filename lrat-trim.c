@@ -447,16 +447,22 @@ static int map_id (int id) {
   return res;
 }
 
+#define ISDIGIT faster_than_default_isdigit
+
+static inline bool faster_than_default_isdigit (int ch) {
+  return '0' <= ch && ch <= '9';
+}
+
 static const char *exceeds_int_max (int n, int ch) {
   static char buffer[32];
   const size_t size = sizeof buffer - 5;
-  assert (isdigit (ch));
+  assert (ISDIGIT (ch));
   sprintf (buffer, "%d", n);
   size_t i = strlen (buffer);
   do {
     assert (i < sizeof buffer);
     buffer[i++] = ch;
-  } while (i < size && isdigit (ch = read_char ()));
+  } while (i < size && ISDIGIT (ch = read_char ()));
   if (ch == '\n') {
     assert (input);
     assert (input->lines);
@@ -494,7 +500,7 @@ static void parse_proof () {
     if (!isdigit (ch))
       err ("expected digit as first character of line");
     int id = (ch - '0');
-    while (isdigit (ch = read_char ())) {
+    while (ISDIGIT (ch = read_char ())) {
       if (!id)
         err ("unexpected digit '%c' after indentifier starting with '0'",
              ch);
@@ -523,14 +529,14 @@ static void parse_proof () {
       int last = 0;
       do {
         ch = read_char ();
-        if (!isdigit (ch)) {
+        if (!ISDIGIT (ch)) {
           if (last)
             err ("expected digit after '%d ' in deletion %d", last, id);
           else
             err ("expected digit after '%d d ' in deletion %d", id, id);
         }
         int other = ch - '0';
-        while (isdigit ((ch = read_char ()))) {
+        while (ISDIGIT ((ch = read_char ()))) {
           if (!other)
             err ("unexpected digit '%c' after '0' in deletion %d", ch, id);
           if (INT_MAX / 10 < other)
@@ -606,18 +612,18 @@ static void parse_proof () {
         else
           ch = read_char ();
         if (ch == '-') {
-          if (!isdigit (ch = read_char ()))
+          if (!ISDIGIT (ch = read_char ()))
             err ("expected digit after '%d -' in clause %d", last, id);
           if (ch == '0')
             err ("expected non-zero digit after '%d -'", last);
           sign = -1;
-        } else if (!isdigit (ch))
+        } else if (!ISDIGIT (ch))
           err ("expected literal or '0' after '%d ' in clause %d", last,
                id);
         else
           sign = 1;
         int idx = ch - '0';
-        while (isdigit (ch = read_char ())) {
+        while (ISDIGIT (ch = read_char ())) {
           if (!idx)
             err ("unexpected second '%c' after '%d 0' in clause %d", ch,
                  last, id);
@@ -674,19 +680,19 @@ static void parse_proof () {
       do {
         int sign;
         if ((ch = read_char ()) == '-') {
-          if (!isdigit (ch = read_char ()))
+          if (!ISDIGIT (ch = read_char ()))
             err ("expected digit after '%d -' in clause %d", last, id);
           if (ch == '0')
             err ("expected non-zero digit after '%d -'", last);
           sign = -1;
-        } else if (!isdigit (ch))
+        } else if (!ISDIGIT (ch))
           err ("expected clause identifier after '%d ' "
                "in clause %d",
                last, id);
         else
           sign = 1;
         int other = ch - '0';
-        while (isdigit (ch = read_char ())) {
+        while (ISDIGIT (ch = read_char ())) {
           if (!other)
             err ("unexpected second '%c' after '%d 0' in clause %d", ch,
                  last, id);
