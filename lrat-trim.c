@@ -37,13 +37,13 @@ static const char * usage =
 "the exit code is zero. If further an empty clause was found 's VERIFIED'\n"
 "is printed.\n"
 "\n"
-"If the CNF or the proof contains an empty clause, then proof checking is\n"
-"restricted to the trimmed proof.  Without empty clause, neither in the CNF\n"
-"nor in the proof, trimming is skipped and all proof steps are checked.\n"
-"The same effect can be achieved by using '--no-trimming', which has the\n"
-"additional benefit to enforce forward on-the-fly checking while parsing\n"
-"the proof. This mode allows to delete clauses eagerly and gives the chance\n"
-"to reduce memory usage substantially but can not write any output files.\n"
+"If the CNF or the proof contains an empty clause, then proof checking\n"
+"is restricted to the trimmed proof.  Without empty clause, neither in\n"
+"the CNF nor in the proof, trimming is skipped.  The same effect can be\n"
+"achieved by using '--no-trimming', which has the additional benefit to\n"
+"enforce forward on-the-fly checking while parsing the proof. This mode\n"
+"allows to delete clauses eagerly and gives the chance to reduce memory\n"
+"usage substantially.  Without trimming no output files are written.\n"
 "\n"
 "At most one of the input and one of the output files can be '-' which\n"
 "then reads the corresponding input from '<stdin>' or writes to '<stdout>'\n"
@@ -52,8 +52,9 @@ static const char * usage =
 "character ('p' or 'c' gives DIMACS format), which then also determines\n"
 "the type of the second file as proof output or input.  Two files can\n"
 "not have the same specified file path except for '-' and '/dev/null'.\n"
-"The latter is a hard-coded file name and will not actually open and\n"
-"and write to '/dev/null' (whether it exists or not on your system).\n"
+"The latter is a hard-coded file name and will not actually open and write\n"
+"to '/dev/null' (whether it exists or not on your system).\n"
+
 ;
 
 // clang-format on
@@ -111,6 +112,11 @@ static struct file files[4];
 static size_t size_files;
 
 // Current input and output file for writing and reading functions.
+
+// As we only work on one input sequentially during 'parse_cnf' and then
+// later in 'parse_proof' we keep these files as static global data
+// structures which helps the compiler to optimize 'read_char'.  The same
+// applies to the output file.
 
 static struct file input, output;
 
@@ -1047,7 +1053,7 @@ static void open_input_files () {
   if (size_files == 1)
     proof.input = read_file (&files[0]);
   else if (size_files == 2) {
-    struct file * file = &files[0];
+    struct file *file = &files[0];
     input = *read_file (file);
     int ch = read_char ();
     file->saved = ch;
