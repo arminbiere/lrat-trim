@@ -1173,7 +1173,8 @@ static void print_banner () {
 }
 
 static void resources () {
-  msg ("used %.2f seconds and %.0f MB", process_time (), mega_bytes ());
+  msg ("total time of %.2f seconds and maximum memory usage of %.0f MB",
+       process_time (), mega_bytes ());
 }
 
 int main (int argc, char **argv) {
