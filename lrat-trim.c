@@ -552,6 +552,8 @@ static void parse_cnf () {
 }
 
 static void parse_proof () {
+  double start = process_time ();
+  vrb ("starting parsing proof after %.2f seconds", start);
   assert (proof.input);
   input = *proof.input;
   msg ("reading proof from '%s'", input.path);
@@ -831,11 +833,16 @@ static void parse_proof () {
   msg ("parsed original proof with %zu added and %zu deleted clauses",
        statistics.original.proof.added, statistics.original.proof.deleted);
 
+  double end = process_time (), duration = end - start;
+  vrb ("finished parsing proof after %.2f seconds", end);
   msg ("parsing original proof took %.2f seconds and needed %.0f MB memory",
-       process_time (), mega_bytes ());
+       duration, mega_bytes ());
 }
 
 static void trim_proof () {
+
+  double start = process_time ();
+  vrb ("starting trimming after %.2f seconds", start);
 
   size_t needed_clauses_size = (size_t)empty_clause + 1;
   used = calloc (needed_clauses_size, sizeof *used);
@@ -870,6 +877,10 @@ static void trim_proof () {
                 statistics.original.proof.added));
 
   free (work.begin);
+
+  double end = process_time (), duration = end - start;
+  vrb ("finished trimming after %.2f seconds", end);
+  msg ("trimming proof took %.2f seconds", duration);
 }
 
 static struct file *write_file (struct file *file) {
@@ -1000,6 +1011,8 @@ static void write_empty_proof () {
 }
 
 static void write_proof () {
+  double start = process_time ();
+  vrb ("starting writing proof after %.2f seconds", start);
   if (!proof.output)
     return;
   output = *write_file (proof.output);
@@ -1009,6 +1022,9 @@ static void write_proof () {
   else
     write_empty_proof ();
   close_output_proof ();
+  double end = process_time (), duration = end - start;
+  vrb ("finished writing proof after %.2f seconds", end);
+  msg ("writing proof took %.2f seconds", duration);
 }
 
 static void write_cnf () {
