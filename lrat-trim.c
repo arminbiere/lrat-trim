@@ -828,11 +828,11 @@ static void parse_proof () {
   vrb ("read %zu lines with %zu bytes (%.0f MB)", input.lines, input.bytes,
        input.bytes / (double)(1 << 20));
 
-  msg ("parsed original proof has %zu added and %zu deleted clauses",
+  msg ("parsed original proof with %zu added and %zu deleted clauses",
        statistics.original.proof.added, statistics.original.proof.deleted);
 
-  msg ("parsing proof finished in %.2f seconds and used %.0f MB", process_time (),
-       mega_bytes ());
+  msg ("parsing original proof took %.2f seconds and needed %.0f MB memory",
+       process_time (), mega_bytes ());
 }
 
 static void trim_proof () {
