@@ -162,6 +162,7 @@ static struct char_map marked;
 static struct ints_map literals;
 static struct ints_map antecedents;
 static struct deletion_map deleted;
+static struct int_stack resolvent;
 
 static void die (const char *, ...) __attribute__ ((format (printf, 1, 2)));
 static void err (const char *, ...) __attribute__ ((format (printf, 1, 2)));
@@ -521,36 +522,64 @@ static double mega_bytes (void) {
 static double average (double a, double b) { return b ? a / b : 0; }
 static double percent (double a, double b) { return average (100 * a, b); }
 
+static inline void mark_literal (int lit) {
+  assert (lit);
+  assert (lit != INT_MIN);
+  int idx = abs (lit);
+  signed char mark = lit < 0 ? -1 : 1;
+  assert (idx < SIZE (marked));
+  assert (!marked.begin[idx]);
+  marked.begin[idx] = mark;
+}
+
+static inline void unmark_literal (int lit) {
+  assert (lit);
+  assert (lit != INT_MIN);
+  int idx = abs (lit);
+#ifndef NDEBUG
+  signed char mark = lit < 0 ? -1 : 1;
+  assert (idx < SIZE (marked));
+  assert (marked.begin[idx] == mark);
+#endif
+  marked.begin[idx] = 0;
+}
+
+static inline signed char marked_literal (int lit) {
+  assert (lit);
+  assert (lit != INT_MIN);
+  int idx = abs (lit);
+  assert (idx < SIZE (marked));
+  int res = marked.begin[idx];
+  if (lit < 0)
+    res = -res;
+  return res;
+}
+
+static int resolve (int id, int antecedent, int except) {
+  if (antecedent < 0)
+    die ("resolving of negative RAT antecedent %d in clause %d "
+         "not supported yet", antecedent, id);
+  assert (antecedent < SIZE (added));
+  assert (added.begin[antecedent] > 0);
+  assert (antecedent < SIZE (literals));
+  int * l = literals.begin[antecedent];
+  assert (l);
+  if (!*l)
+    die ("can not resolve empty antecedent clause %d of clause %d",
+         antecedent, id);
+  int pivot = *l;
+  dbgs (l, "resolving clause %d on literal %d", antecedent, pivot);
+  return pivot;
+}
+
+static void resolve_antecedents (int id, int *a) {
+  assert (resolvent.empty);
+  for (int * p = a; *p; p++)
+}
+
 static inline bool is_original_clause (int id) {
   return !id || !first_clause_added_in_proof ||
          id < first_clause_added_in_proof;
-}
-
-static inline bool mark_used (int id, int used_where) {
-  assert (0 < id);
-  assert (0 < used_where);
-  int *w = used + id;
-  int used_before = *w;
-  if (used_before >= used_where)
-    return true;
-  *w = used_where;
-  dbg ("updated clause %d to be used in clause %d", id, used_where);
-  if (used_before)
-    return true;
-  if (is_original_clause (id))
-    statistics.trimmed.cnf.added++;
-  else
-    statistics.trimmed.proof.added++;
-  return false;
-}
-
-static int map_id (int id) {
-  assert (id != INT_MIN);
-  int abs_id = abs (id);
-  int res = id < first_clause_added_in_proof ? id : map[abs_id];
-  if (id < 0)
-    res = -res;
-  return res;
 }
 
 // Apparently the hot-spot of the parser is checking the loop condition for
@@ -664,7 +693,7 @@ static void parse_cnf () {
   if (ch != '\n')
     err ("expected new-line after 'p cnf %d %d'", variables, clauses);
   msg ("found 'p cnf %d %d' header", variables, clauses);
-  ADJUST (marked, 1 + 2 * (size_t)variables);
+  ADJUST (marked, variables);
   ADJUST (literals, clauses);
   ADJUST (added, clauses);
   int lit = 0, parsed = 0;
@@ -882,11 +911,20 @@ static void parse_proof () {
                  "was already deleted before "
                  "(run with '--track-deleted' for more information)",
                  other, id);
-
           if (is_original_clause (id))
             statistics.original.cnf.deleted++;
           else
             statistics.original.proof.deleted++;
+          if (no_trimming) {
+            assert (!proof.output);
+            assert (!cnf.output);
+            assert (other < SIZE (antecedents));
+            free (antecedents.begin[other]);
+            antecedents.begin[other] = 0;
+            assert (other < SIZE (literals));
+            free (literals.begin[other]);
+            literals.begin[other] = 0;
+          }
         } else if (ch != '\n')
           err ("expected new-line after '0' at end of deletion %d", id);
 #if !defined(NDEBUG) || defined(LOGGING)
@@ -902,30 +940,31 @@ static void parse_proof () {
       if (id == last_id)
         err ("line identifier '%d' of addition line does not increase", id);
       if (!first_clause_added_in_proof) {
-	if (last_clause_added_in_cnf) {
-	  if (last_clause_added_in_cnf == id)
-	    err ("first added clause %d in proof "
-		 "has same identifier as last original clause", id);
-	  else if (last_clause_added_in_cnf > id)
-	    err ("first added clause %d in proof "
-		 "has smaller identifier as last original clause %d",
-		 id, last_clause_added_in_cnf);
-	}
+        if (last_clause_added_in_cnf) {
+          if (last_clause_added_in_cnf == id)
+            err ("first added clause %d in proof "
+                 "has same identifier as last original clause",
+                 id);
+          else if (last_clause_added_in_cnf > id)
+            err ("first added clause %d in proof "
+                 "has smaller identifier as last original clause %d",
+                 id, last_clause_added_in_cnf);
+        }
         vrb ("adding first clause %d in proof", id);
         first_clause_added_in_proof = id;
-	if (!last_clause_added_in_cnf) {
-	  signed char *begin = added.begin;
-	  signed char *end = begin + id;
-	  for (signed char *p = begin + 1; p != end; p++) {
-	    signed char status = *p;
-	    if (status)
-	      assert (status < 0);
-	    else
-	      *p = 1;
-	  }
-	  assert (!statistics.original.cnf.added);
-	  statistics.original.cnf.added = id - 1;
-	}
+        if (!last_clause_added_in_cnf) {
+          signed char *begin = added.begin;
+          signed char *end = begin + id;
+          for (signed char *p = begin + 1; p != end; p++) {
+            signed char status = *p;
+            if (status)
+              assert (status < 0);
+            else
+              *p = 1;
+          }
+          assert (!statistics.original.cnf.added);
+          statistics.original.cnf.added = id - 1;
+        }
       }
       assert (EMPTY (work));
       bool first = true;
@@ -1120,7 +1159,28 @@ static void parse_proof () {
        duration, mega_bytes ());
 }
 
+static inline bool mark_used (int id, int used_where) {
+  assert (0 < id);
+  assert (0 < used_where);
+  int *w = used + id;
+  int used_before = *w;
+  if (used_before >= used_where)
+    return true;
+  *w = used_where;
+  dbg ("updated clause %d to be used in clause %d", id, used_where);
+  if (used_before)
+    return true;
+  if (is_original_clause (id))
+    statistics.trimmed.cnf.added++;
+  else
+    statistics.trimmed.proof.added++;
+  return false;
+}
+
 static void trim_proof () {
+
+  if (no_trimming)
+    return;
 
   double start = process_time ();
   vrb ("starting trimming after %.2f seconds", start);
@@ -1192,6 +1252,15 @@ static void close_output_proof () {
        proof.input->bytes, proof.input->bytes / (double)(1 << 20),
        proof.output->bytes, proof.output->bytes / (double)(1 << 20),
        percent (proof.output->bytes, proof.input->bytes));
+}
+
+static int map_id (int id) {
+  assert (id != INT_MIN);
+  int abs_id = abs (id);
+  int res = id < first_clause_added_in_proof ? id : map[abs_id];
+  if (id < 0)
+    res = -res;
+  return res;
 }
 
 static void write_non_empty_proof () {
@@ -1327,6 +1396,7 @@ static void release () {
   free (links);
   free (heads);
   free (used);
+  free (resolvent.begin);
   release_ints_map (&literals);
   release_ints_map (&antecedents);
 #endif
