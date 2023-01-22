@@ -83,6 +83,10 @@ struct int_stack {
   int *begin, *end, *allocated;
 };
 
+struct char_map {
+  signed char *begin, *end;
+};
+
 struct ints_map {
   int **begin, **end;
 };
@@ -134,7 +138,7 @@ static int empty_clause;
 static int first_clause_added_in_proof;
 
 static struct int_stack work;
-static struct int_stack added;
+static struct char_map added;
 static struct ints_map literals;
 static struct ints_map antecedents;
 static struct deletion_map deleted;
@@ -503,20 +507,6 @@ static inline bool mark_used (int id, int used_where) {
   return false;
 }
 
-static inline bool marked_added (int id) {
-  assert (0 < id);
-  if (id >= SIZE (added))
-    return false;
-  return added.begin[id];
-}
-
-static inline bool has_been_added (int id) __attribute__ ((always_inline));
-
-static inline bool has_been_added (int id) {
-  assert (0 < id);
-  return is_original_clause (id) || marked_added (id);
-}
-
 static int map_id (int id) {
   assert (id != INT_MIN);
   int abs_id = abs (id);
@@ -612,6 +602,7 @@ static void parse_proof () {
       err ("expected space after identifier '%d'", id);
     if (id < last_id)
       err ("identifier '%d' smaller than last '%d'", id, last_id);
+    ADJUST (added, id);
     ch = read_char ();
     if (ch == 'd') {
       ch = read_char ();
@@ -651,23 +642,32 @@ static void parse_proof () {
             err ("deleted clause '%d' "
                  "larger than deletion identifier '%d'",
                  other, id);
-          if (!has_been_added (other))
-            err ("deleted clause '%d' in deletion %d is neither "
-                 "an original clause nor has been added",
-                 other, id);
+	  if (first_clause_added_in_proof)
+	    assert (other < SIZE (added));
+	  else
+	    ADJUST (added, other);
+          signed char *status_ptr = added.begin + other;
+          signed char status = *status_ptr;
           ADJUST (deleted, other);
-          struct deletion *d = deleted.begin + other;
-          if (d->id) {
-            assert (d->line);
+          struct deletion *other_deletion = deleted.begin + other;
+          if (!status && first_clause_added_in_proof) {
+            assert (first_clause_added_in_proof <= other);
+            err ("deleted clause '%d' in deletion %d "
+                 "is neither an original clause nor has been added",
+                 other, id);
+          } else if (status < 0) {
+            assert (other_deletion->id);
+            assert (other_deletion->line);
             err ("clause %d requested to be deleted in deletion %d "
                  "was already deleted in deletion %d at line %zu",
-                 other, id, d->id, d->line);
+                 other, id, other_deletion->id, other_deletion->line);
           }
+          *status_ptr = -1;
           size_t deleted_line = input.lines + 1;
           dbg ("marked clause %d to be deleted at line %zu in deletion %d",
                other, deleted_line, id);
-          d->line = deleted_line;
-          d->id = id;
+          other_deletion->line = deleted_line;
+          other_deletion->id = id;
           if (is_original_clause (id))
             statistics.original.cnf.deleted++;
           else
@@ -689,8 +689,17 @@ static void parse_proof () {
       if (!first_clause_added_in_proof) {
         vrb ("adding first clause %d", id);
         first_clause_added_in_proof = id;
-        if (!statistics.original.cnf.added)
-          statistics.original.cnf.added = id - 1;
+        signed char *begin = added.begin;
+        signed char *end = begin + id;
+        for (signed char *p = begin + 1; p != end; p++) {
+          signed char status = *p;
+          if (status)
+            assert (status < 0);
+          else
+            *p = 1;
+        }
+        assert (!statistics.original.cnf.added);
+        statistics.original.cnf.added = id - 1;
       }
       assert (EMPTY (work));
       bool first = true;
@@ -812,10 +821,22 @@ static void parse_proof () {
           if (other >= id)
             err ("antecedent '%d' in clause %d exceeds clause",
                  signed_other, id);
-          if (!has_been_added (other))
+          assert (other < SIZE (added));
+          signed char status = added.begin[other];
+          if (!status)
             err ("antecedent '%d' in clause %d "
                  "is neither an original clause nor has been added",
                  signed_other, id);
+          else if (status < 0) {
+            assert (other < SIZE (deleted));
+            struct deletion *other_deletion = deleted.begin + other;
+            assert (other_deletion->id);
+            assert (other_deletion->line);
+            err ("antecedent %d in clause %d "
+                 "was already deleted in deletion %d at line %zu",
+                 signed_other, id, other_deletion->id,
+                 other_deletion->line);
+          }
         } else {
           if (ch != '\n')
             err ("expected new-line after '0' at end of clause %d", id);
@@ -839,8 +860,7 @@ static void parse_proof () {
         ADJUST (antecedents, id);
         antecedents.begin[id] = a;
       }
-      ADJUST (added, id);
-      added.begin[id] = true;
+      added.begin[id] = 1;
       statistics.original.proof.added++;
     }
     last_id = id;
