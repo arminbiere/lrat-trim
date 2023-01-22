@@ -660,7 +660,7 @@ static void parse_proof () {
             ADJUST (added, other);
           signed char *status_ptr = added.begin + other;
           signed char status = *status_ptr;
-	  *status_ptr = -1;
+          *status_ptr = -1;
           if (!status && first_clause_added_in_proof) {
             assert (first_clause_added_in_proof <= other);
             err ("deleted clause '%d' in deletion %d "
@@ -856,18 +856,18 @@ static void parse_proof () {
                  signed_other, id);
           else if (status < 0) {
             assert (other < SIZE (deleted));
-	    if (track_deleted) {
-	      struct deletion *other_deletion = deleted.begin + other;
-	      assert (other_deletion->id);
-	      assert (other_deletion->line);
-	      err ("antecedent %d in clause %d "
-		   "was already deleted in deletion %d at line %zu",
-		   signed_other, id, other_deletion->id,
-		   other_deletion->line);
-	    } else
-	      err ("antecedent %d in clause %d was already deleted before"
-		   "(run with '--track-deleted' for more information)",
-		   other, id);
+            if (track_deleted) {
+              struct deletion *other_deletion = deleted.begin + other;
+              assert (other_deletion->id);
+              assert (other_deletion->line);
+              err ("antecedent %d in clause %d "
+                   "was already deleted in deletion %d at line %zu",
+                   signed_other, id, other_deletion->id,
+                   other_deletion->line);
+            } else
+              err ("antecedent %d in clause %d was already deleted before"
+                   "(run with '--track-deleted' for more information)",
+                   other, id);
           }
         } else {
           if (ch != '\n')
@@ -1157,12 +1157,13 @@ static void options (int argc, char **argv) {
     else if (!strcmp (arg, "-q") || !strcmp (arg, "--quiet"))
       verbosity = -1;
     else if (!strcmp (arg, "-t") || !strcmp (arg, "--track") ||
-                                    !strcmp (arg, "--track-deleted"))
+             !strcmp (arg, "--track-deleted"))
       track_deleted = true;
     else if (!strcmp (arg, "-v") || !strcmp (arg, "--verbose")) {
       if (verbosity <= 0)
         verbosity = 1;
-    } else if (!strcmp (arg, "--no-trimming") || !strcmp (arg, "--no-trim"))
+    } else if (!strcmp (arg, "-n") || !strcmp (arg, "--no-trim") ||
+               !strcmp (arg, "--no-trimming"))
       no_trimming = arg;
     else if (!strcmp (arg, "-V") || !strcmp (arg, "--version"))
       fputs (version, stdout), fputc ('\n', stdout), exit (0);
