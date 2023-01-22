@@ -49,10 +49,13 @@ runlrat () {
 
 runcnf eofincomment
 runcnf expectedcnfafterp
-runcnf expecteddigitafterpcnf
+runcnf expectedigitafterpcnf
+runcnf expectedigitaftervars
 runcnf expectedspaceafterp
 runcnf expectedspaceafterpcnf
 runcnf nospaceaftervars
+runcnf numclausesexceedsintmax1
+runcnf numclausesexceedsintmax2
 runcnf numvarsexceedsintmax1
 runcnf numvarsexceedsintmax2
 

@@ -622,6 +622,25 @@ NUMBER_OF_VARIABLES_EXCEEDS_INT_MAX:
   }
   if (ch != ' ')
     err ("expected space after 'p cnf %d", variables);
+  ch = read_char ();
+  if (!ISDIGIT (ch))
+    err ("expected digit after 'p cnf %d '", variables);
+  int clauses = ch - '0';
+  while (ISDIGIT (ch = read_char ())) {
+    if (INT_MAX/10 < clauses)
+NUMBER_OF_CLAUSES_EXCEEDS_INT_MAX:
+      err ("number of clauses '%s' exceeds 'INT_MAX'",
+           exceeds_int_max (clauses, ch));
+    clauses *= 10;
+    int digit = ch - '0';
+    if (INT_MAX - digit < clauses) {
+      clauses /= 10;
+      goto NUMBER_OF_CLAUSES_EXCEEDS_INT_MAX;
+    }
+  }
+  if (ch != ' ')
+    err ("expected new-line after 'p cnf %d %d", variables, clauses);
+  msg ("found 'p cnf %d %d' header", variables, clauses);
   if (input.close)
     fclose (input.file);
   *cnf.input = input;
