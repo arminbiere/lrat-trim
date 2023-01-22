@@ -3,18 +3,20 @@ static const char *version = "0.0.2";
 // clang-format off
 
 static const char * usage =
+
 "usage: lrat-trim [ <option> ... ] <file> ...\n"
 "\n"
 "where '<option> ...' is a potentially empty list of the following options\n"
 "\n"
-"  -h | --help           print this command line option summary\n"
+"  -h | --help             print this command line option summary\n"
 #ifdef LOGGING
-"  -l | --log[ging]      print all messages including logging messages\n"
+"  -l | --log[ging]        print all messages including logging messages\n"
 #endif
-"  -n | --no-trim[ming]  disable trimming as described below\n"
-"  -q | --quiet          be quiet and do not print any messages\n" 
-"  -v | --verbose        enable verbose messages\n"
-"  -V | --version        print version only\n"
+"  -n | --no-trim[ming]    disable trimming as described below\n"
+"  -q | --quiet            be quiet and do not print any messages\n" 
+"  -t | --track[-deleted]  track more deletion information\n"
+"  -v | --verbose          enable verbose messages\n"
+"  -V | --version          print version only\n"
 "\n"
 "and '<file> ...' is a non-empty list of at most four DIMACS and LRAT files:\n"
 "\n"
@@ -25,6 +27,7 @@ static const char * usage =
 "  <input-cnf> <input-proof> <output-proof>\n"
 "  <input-cnf> <input-proof> <output-proof> <output-cnf>\n"
 "\n"
+
 "The required input proof in LRAT format is parsed and trimmed and\n"
 "optionally written to the output proof file if it is specified.  Otherwise\n"
 "the proof is trimmed only in memory producing trimming statistics.\n"
@@ -35,6 +38,13 @@ static const char * usage =
 "and the program aborts with a non-zero exit code.  If checking succeeds\n"
 "the exit code is zero. If further an empty clause was found 's VERIFIED'\n"
 "is printed.\n"
+"\n"
+"The status of clauses, i.e., whether they are added or have been deleted\n"
+"is always tracked and checked precisely.  It is considered and error if\n"
+"a clause is used in a proof line which been deleted before.  In order to\n"
+"determine in which proof line exactly the offending clause was deleted\n"
+"the user can specify '--track-deleted' to track this information which\n"
+"will then yield a more informative error message.\n"
 "\n"
 "If the CNF or the proof contains an empty clause, then proof checking\n"
 "is restricted to the trimmed proof.  Without empty clause, neither in\n"
@@ -53,6 +63,7 @@ static const char * usage =
 "input.  Two files can not have the same specified file path except for '-'\n"
 "and '/dev/null'.  The latter is a hard-coded name and will not actually be\n"
 "opened nor written to '/dev/null' (whether it exists or not on the system).\n"
+
 ;
 
 // clang-format on
@@ -127,6 +138,7 @@ struct {
 } cnf, proof;
 
 static const char *no_trimming;
+static bool track_deleted;
 static int verbosity;
 
 static int *map;
@@ -642,32 +654,47 @@ static void parse_proof () {
             err ("deleted clause '%d' "
                  "larger than deletion identifier '%d'",
                  other, id);
-	  if (first_clause_added_in_proof)
-	    assert (other < SIZE (added));
-	  else
-	    ADJUST (added, other);
+          if (first_clause_added_in_proof)
+            assert (other < SIZE (added));
+          else
+            ADJUST (added, other);
           signed char *status_ptr = added.begin + other;
           signed char status = *status_ptr;
-          ADJUST (deleted, other);
-          struct deletion *other_deletion = deleted.begin + other;
+	  *status_ptr = -1;
           if (!status && first_clause_added_in_proof) {
             assert (first_clause_added_in_proof <= other);
             err ("deleted clause '%d' in deletion %d "
                  "is neither an original clause nor has been added",
                  other, id);
-          } else if (status < 0) {
-            assert (other_deletion->id);
-            assert (other_deletion->line);
-            err ("clause %d requested to be deleted in deletion %d "
-                 "was already deleted in deletion %d at line %zu",
-                 other, id, other_deletion->id, other_deletion->line);
           }
-          *status_ptr = -1;
-          size_t deleted_line = input.lines + 1;
-          dbg ("marked clause %d to be deleted at line %zu in deletion %d",
-               other, deleted_line, id);
-          other_deletion->line = deleted_line;
-          other_deletion->id = id;
+          if (track_deleted) {
+            ADJUST (deleted, other);
+            struct deletion *other_deletion = deleted.begin + other;
+            if (!status && first_clause_added_in_proof) {
+              assert (first_clause_added_in_proof <= other);
+              err ("deleted clause '%d' in deletion %d "
+                   "is neither an original clause nor has been added",
+                   other, id);
+            } else if (status < 0) {
+              assert (other_deletion->id);
+              assert (other_deletion->line);
+              err ("clause %d requested to be deleted in deletion %d "
+                   "was already deleted in deletion %d at line %zu",
+                   other, id, other_deletion->id, other_deletion->line);
+            }
+            *status_ptr = -1;
+            size_t deleted_line = input.lines + 1;
+            dbg (
+                "marked clause %d to be deleted at line %zu in deletion %d",
+                other, deleted_line, id);
+            other_deletion->line = deleted_line;
+            other_deletion->id = id;
+          } else if (status < 0)
+            err ("clause %d requested to be deleted in deletion %d "
+                 "was already deleted before "
+                 "(run with '--track-deleted' for more information)",
+                 other, id);
+
           if (is_original_clause (id))
             statistics.original.cnf.deleted++;
           else
@@ -829,13 +856,18 @@ static void parse_proof () {
                  signed_other, id);
           else if (status < 0) {
             assert (other < SIZE (deleted));
-            struct deletion *other_deletion = deleted.begin + other;
-            assert (other_deletion->id);
-            assert (other_deletion->line);
-            err ("antecedent %d in clause %d "
-                 "was already deleted in deletion %d at line %zu",
-                 signed_other, id, other_deletion->id,
-                 other_deletion->line);
+	    if (track_deleted) {
+	      struct deletion *other_deletion = deleted.begin + other;
+	      assert (other_deletion->id);
+	      assert (other_deletion->line);
+	      err ("antecedent %d in clause %d "
+		   "was already deleted in deletion %d at line %zu",
+		   signed_other, id, other_deletion->id,
+		   other_deletion->line);
+	    } else
+	      err ("antecedent %d in clause %d was already deleted before"
+		   "(run with '--track-deleted' for more information)",
+		   other, id);
           }
         } else {
           if (ch != '\n')
@@ -1124,6 +1156,9 @@ static void options (int argc, char **argv) {
 #endif
     else if (!strcmp (arg, "-q") || !strcmp (arg, "--quiet"))
       verbosity = -1;
+    else if (!strcmp (arg, "-t") || !strcmp (arg, "--track") ||
+                                    !strcmp (arg, "--track-deleted"))
+      track_deleted = true;
     else if (!strcmp (arg, "-v") || !strcmp (arg, "--verbose")) {
       if (verbosity <= 0)
         verbosity = 1;
