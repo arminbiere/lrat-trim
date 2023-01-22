@@ -56,14 +56,23 @@ runcnf expectedigitafterpcnf
 runcnf expectedigitaftervars
 runcnf expectedspaceafterp
 runcnf expectedspaceafterpcnf
+runcnf idxexceedsvars
+runcnf invalidcnfchar
 runcnf litoobig1
 runcnf litoobig2
+runcnf nodigitaftersignedlit
 runcnf nonlafterheader
+runcnf nospaceafterlit
 runcnf nospaceaftervars
+runcnf nozero
 runcnf numclausesexceedsintmax1
 runcnf numclausesexceedsintmax2
 runcnf numvarsexceedsintmax1
 runcnf numvarsexceedsintmax2
+runcnf toomanyclauses
+runcnf unexpectedchar
+runcnf zeroaftersignedlit
+runcnf zerovar
 
 runlrat addantedoublezero
 runlrat addantetoobig1
