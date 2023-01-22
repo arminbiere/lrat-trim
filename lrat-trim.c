@@ -64,7 +64,6 @@ static const char * usage =
 "input.  Two files can not have the same specified file path except for '-'\n"
 "and '/dev/null'.  The latter is a hard-coded name and will not actually be\n"
 "opened nor written to '/dev/null' (whether it exists or not on the system).\n"
-
 ;
 
 // clang-format on
@@ -154,6 +153,7 @@ static int *heads;
 static int *used;
 
 static int empty_clause;
+static int last_clause_added_in_cnf;
 static int first_clause_added_in_proof;
 
 static struct int_stack work;
@@ -746,6 +746,7 @@ static void parse_cnf () {
   vrb ("read %zu CNF lines with %zu bytes (%.0f MB)", input.lines,
        input.bytes, input.bytes / (double)(1 << 20));
 
+  last_clause_added_in_cnf = parsed;
   msg ("parsed CNF proof with %zu added clauses",
        statistics.original.cnf.added);
 
@@ -887,10 +888,23 @@ static void parse_proof () {
       if (id == last_id)
         err ("line identifier '%d' of addition line does not increase", id);
       if (!first_clause_added_in_proof) {
-        vrb ("adding first clause %d", id);
+	if (last_clause_added_in_cnf) {
+	  if (last_clause_added_in_cnf == id)
+	    err ("first added clause %d in proof "
+		 "has same identifier as last original clause", id);
+	  else if (last_clause_added_in_cnf > id)
+	    err ("first added clause %d in proof "
+		 "has smaller identifier as last original clause %d",
+		 id, last_clause_added_in_cnf);
+	}
+        vrb ("adding first clause %d in proof", id);
         first_clause_added_in_proof = id;
         signed char *begin = added.begin;
-        signed char *end = begin + id;
+        signed char *end;
+	if (last_clause_added_in_cnf) 
+	  end = begin + (size_t) last_clause_added_in_cnf + 1;
+	else
+	  end = begin + id;
         for (signed char *p = begin + 1; p != end; p++) {
           signed char status = *p;
           if (status)
