@@ -575,7 +575,7 @@ static void parse_cnf () {
     return;
   input = *cnf.input;
   wrn ("checking the input proof on a given CNF not implemented yet");
-  wrn ("(only trimming and writing the input proof");
+  wrn ("(only trimming and writing the input proof)");
   if (input.close)
     fclose (input.file);
   *cnf.input = input;
