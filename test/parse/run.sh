@@ -47,12 +47,18 @@ runlrat () {
   fi
 }
 
-runcnf eofincomment
+runcnf clausemissing
+runcnf clausesmissing
+runcnf eofincomment1
+runcnf eofincomment2
 runcnf expectedcnfafterp
 runcnf expectedigitafterpcnf
 runcnf expectedigitaftervars
 runcnf expectedspaceafterp
 runcnf expectedspaceafterpcnf
+runcnf litoobig1
+runcnf litoobig2
+runcnf nonlafterheader
 runcnf nospaceaftervars
 runcnf numclausesexceedsintmax1
 runcnf numclausesexceedsintmax2

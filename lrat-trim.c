@@ -84,6 +84,8 @@ struct file {
   size_t bytes;
   size_t lines;
   int close;
+  int eof;
+  int last;
   int saved;
 };
 
@@ -178,9 +180,12 @@ static void die (const char *fmt, ...) {
 
 static void err (const char *fmt, ...) {
   assert (input.path);
+  size_t line = input.lines + 1;
+  if (input.last == '\n')
+    line--;
   fprintf (stderr,
-           "lrat-trim: parse error in '%s' at line %zu: ", input.path,
-           input.lines + 1);
+           "lrat-trim: parse error in '%s' %s line %zu: ", input.path,
+           input.eof && input.last == '\n' ? "after" : "in", line);
   va_list ap;
   va_start (ap, fmt);
   vfprintf (stderr, fmt, ap);
@@ -371,16 +376,20 @@ static inline void count_read (int ch) __attribute__ ((always_inline));
 static inline int read_char (void) __attribute__ ((always_inline));
 
 static inline int read_buffer (void) {
-  if (buffer.pos == buffer.end && !fill_buffer ())
+  if (buffer.pos == buffer.end && !fill_buffer ()) {
+    input.eof = true;
     return EOF;
+  }
   return buffer.chars[buffer.pos++];
 }
 
 static inline void count_read (int ch) {
   if (ch == '\n')
     input.lines++;
-  if (ch != EOF)
+  if (ch != EOF) {
     input.bytes++;
+    input.last = ch;
+  }
 }
 
 static inline int read_char (void) {
@@ -596,7 +605,7 @@ static void parse_cnf () {
     else
       while ((ch = read_char ()) != '\n')
         if (ch == EOF)
-          err ("unexpected end-of-file in comment");
+          err ("unexpected end-of-file in comment before header");
   if (read_char () != ' ')
     err ("expected space after 'p'");
   if (read_char () != 'c' || read_char () != 'n' || read_char () != 'f')
@@ -608,8 +617,8 @@ static void parse_cnf () {
     err ("expected digit after 'p cnf '");
   int variables = ch - '0';
   while (ISDIGIT (ch = read_char ())) {
-    if (INT_MAX/10 < variables)
-NUMBER_OF_VARIABLES_EXCEEDS_INT_MAX:
+    if (INT_MAX / 10 < variables)
+    NUMBER_OF_VARIABLES_EXCEEDS_INT_MAX:
       err ("number of variables '%s' exceeds 'INT_MAX'",
            exceeds_int_max (variables, ch));
     variables *= 10;
@@ -627,8 +636,8 @@ NUMBER_OF_VARIABLES_EXCEEDS_INT_MAX:
     err ("expected digit after 'p cnf %d '", variables);
   int clauses = ch - '0';
   while (ISDIGIT (ch = read_char ())) {
-    if (INT_MAX/10 < clauses)
-NUMBER_OF_CLAUSES_EXCEEDS_INT_MAX:
+    if (INT_MAX / 10 < clauses)
+    NUMBER_OF_CLAUSES_EXCEEDS_INT_MAX:
       err ("number of clauses '%s' exceeds 'INT_MAX'",
            exceeds_int_max (clauses, ch));
     clauses *= 10;
@@ -637,10 +646,76 @@ NUMBER_OF_CLAUSES_EXCEEDS_INT_MAX:
       clauses /= 10;
       goto NUMBER_OF_CLAUSES_EXCEEDS_INT_MAX;
     }
+    clauses += digit;
   }
-  if (ch != ' ')
-    err ("expected new-line after 'p cnf %d %d", variables, clauses);
+  if (ch != '\n')
+    err ("expected new-line after 'p cnf %d %d'", variables, clauses);
   msg ("found 'p cnf %d %d' header", variables, clauses);
+  int lit = 0, parsed = 0;
+  for (;;) {
+    ch = read_char ();
+    if (ch == ' ' || ch == '\t' || ch == '\n')
+      continue;
+    if (ch == EOF) {
+      assert (input.eof);
+      if (lit)
+        err ("'0' missing after clause before end-of-file");
+      if (parsed < clauses) {
+        if (parsed + 1 == clauses)
+          err ("clause missing");
+        else
+          err ("%d clauses missing", clauses - parsed);
+      }
+    }
+    if (ch == 'c') {
+SKIP_COMMENT_AFTER_HEADER:
+      while ((ch = read_char ()) != '\n')
+        if (ch == EOF)
+          err ("unexpected end-of-file in comment after header");
+      continue;
+    }
+    int sign;
+    if (ch == '-') {
+      if (!ISDIGIT (ch))
+        err ("expected digit after '-'");
+      if (ch == '0')
+        err ("expected non-zero digit after '-'");
+      sign = -1;
+    } else {
+      if (!ISDIGIT (ch))
+        err ("unexpected character instead of literal");
+      sign = 1;
+    }
+    int idx = ch - '0';
+    while (ISDIGIT (ch = read_char ())) {
+      if (!idx)
+        err ("unexpected digit '%c' after '0'", ch);
+      if (INT_MAX/10 < idx)
+VARIABLE_EXCEEDS_INT_MAX:
+        err ("variable '%s' exceeds 'INT_MAX'",
+	     exceeds_int_max (idx, ch));
+      idx *= 10;
+      int digit = ch - '0';
+      if (INT_MAX - digit < idx) {
+          idx /= 10;
+          goto VARIABLE_EXCEEDS_INT_MAX;
+      }
+      idx += digit;
+    }
+    lit = sign * idx;
+    if (idx > variables)
+      err ("literal '%d' exceeds maximum variable '%d'",
+           lit, variables);
+    if (parsed >= clauses)
+      err ("too many clauses");
+    else if (lit) {
+    } else
+      parsed++;
+    if (ch == 'c')
+      goto SKIP_COMMENT_AFTER_HEADER;
+    if (ch != ' ' && ch != '\t' && ch != '\n')
+      err ("expected white space after '%d'", lit);
+  }
   if (input.close)
     fclose (input.file);
   *cnf.input = input;
@@ -661,8 +736,7 @@ static void parse_proof () {
     int id = (ch - '0');
     while (ISDIGIT (ch = read_char ())) {
       if (!id)
-        err ("unexpected digit '%c' after identifier starting with '0'",
-             ch);
+        err ("unexpected digit '%c' after '0'", ch);
       if (INT_MAX / 10 < id)
       LINE_IDENTIFIER_EXCEEDS_INT_MAX:
         err ("line identifier '%s' exceeds 'INT_MAX'",
