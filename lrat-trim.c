@@ -694,6 +694,7 @@ static void parse_cnf () {
     }
     int sign;
     if (ch == '-') {
+      ch = read_char ();
       if (!ISDIGIT (ch))
         err ("expected digit after '-'");
       if (ch == '0')
@@ -731,7 +732,20 @@ static void parse_cnf () {
       statistics.original.cnf.added++;
       parsed++;
       dbgs (work.begin, "clause %d parsed", parsed);
+      size_t size_literals = SIZE (work);
+      size_t bytes_literals = size_literals * sizeof (int);
+      int *l = malloc (bytes_literals);
+      if (!l) {
+        assert (size_literals);
+        die ("out-of-memory allocating literals of size %zu clause %d",
+             size_literals - 1, parsed);
+      }
+      memcpy (l, work.begin, bytes_literals);
+      assert (parsed < SIZE (literals));
+      literals.begin[parsed] = l;
       CLEAR (work);
+      assert (parsed < SIZE (added));
+      added.begin[parsed] = 1;
     }
     if (ch == 'c')
       goto SKIP_COMMENT_AFTER_HEADER;
@@ -899,21 +913,19 @@ static void parse_proof () {
 	}
         vrb ("adding first clause %d in proof", id);
         first_clause_added_in_proof = id;
-        signed char *begin = added.begin;
-        signed char *end;
-	if (last_clause_added_in_cnf) 
-	  end = begin + (size_t) last_clause_added_in_cnf + 1;
-	else
-	  end = begin + id;
-        for (signed char *p = begin + 1; p != end; p++) {
-          signed char status = *p;
-          if (status)
-            assert (status < 0);
-          else
-            *p = 1;
-        }
-        assert (!statistics.original.cnf.added);
-        statistics.original.cnf.added = id - 1;
+	if (!last_clause_added_in_cnf) {
+	  signed char *begin = added.begin;
+	  signed char *end = begin + id;
+	  for (signed char *p = begin + 1; p != end; p++) {
+	    signed char status = *p;
+	    if (status)
+	      assert (status < 0);
+	    else
+	      *p = 1;
+	  }
+	  assert (!statistics.original.cnf.added);
+	  statistics.original.cnf.added = id - 1;
+	}
       }
       assert (EMPTY (work));
       bool first = true;
@@ -1492,26 +1504,26 @@ static void print_banner () {
   if (cnf.input) {
     if (proof.output) {
       if (cnf.output)
-        mode = "reading and writing both CNF and LRAT";
+        mode = "reading and writing both CNF and LRAT files";
       else
-        mode = "reading CNF and LRAT and writing LRAT";
+        mode = "reading CNF and LRAT files and writing LRAT file";
     } else if (cnf.output)
-      mode = "reading CNF and LRAT and writing CNF";
+      mode = "reading CNF and LRAT files and writing CNF file";
     else
-      mode = "reading CNF and LRAT";
+      mode = "reading CNF and LRAT file";
   } else {
     if (proof.output)
-      mode = "reading and writing LRAT";
+      mode = "reading and writing LRAT file";
     else
-      mode = "only reading LRAT";
+      mode = "only reading LRAT file";
   }
-  printf ("c %s file%s\n", mode, size_files > 1 ? "s" : "");
+  printf ("c %s\n", mode);
   fflush (stdout);
 }
 
 static void resources () {
-  msg ("total time of %.2f seconds and maximum memory usage of %.0f MB",
-       process_time (), mega_bytes ());
+  msg ("maximum memory usage of %.0f MB", mega_bytes ());
+  msg ("total time of %.2f seconds", process_time ());
 }
 
 int main (int argc, char **argv) {
