@@ -1149,10 +1149,11 @@ static void options (int argc, char **argv) {
     if (!strcmp (arg, "-h") || !strcmp (arg, "--help")) {
       fputs (usage, stdout);
       exit (0);
-    } if (!strcmp (arg, "-f") || !strcmp (arg, "--force"))
+    }
+    if (!strcmp (arg, "-f") || !strcmp (arg, "--force"))
       force = true;
     else if (!strcmp (arg, "-l") || !strcmp (arg, "--log") ||
-               !strcmp (arg, "--logging"))
+             !strcmp (arg, "--logging"))
 #ifdef LOGGING
       verbosity = INT_MAX;
 #else
@@ -1219,12 +1220,12 @@ static struct file *read_file (struct file *file) {
   return file;
 }
 
-static bool has_suffix (const char * str, const char * suffix) {
+static bool has_suffix (const char *str, const char *suffix) {
   size_t l = strlen (str), k = strlen (suffix);
   return l >= k && !strcasecmp (str + l - k, suffix);
 }
 
-static bool looks_like_a_dimacs_file (const char * path) {
+static bool looks_like_a_dimacs_file (const char *path) {
   assert (path);
   if (!strcmp (path, "-"))
     return false;
@@ -1244,7 +1245,7 @@ static bool looks_like_a_dimacs_file (const char * path) {
     return true;
   if (has_suffix (path, ".dimacs.xz"))
     return true;
-  FILE * file = fopen (path, "r");
+  FILE *file = fopen (path, "r");
   if (!file)
     return false;
   int ch = getc (file);
@@ -1270,10 +1271,17 @@ static void open_input_files () {
       proof.input = file;
       if (no_trimming)
         die ("can not write to '%s' with '%s'", files[1].path, no_trimming);
-      if (!force && looks_like_a_dimacs_file (files[1].path))
-	die ("will not overwrite second file '%s' with trimmed proof "
-	     "as it looks like a CNF in DIMACS format (use '--force' to "
-	     "force overwriting)", files[1].path);
+      if (looks_like_a_dimacs_file (files[1].path)) {
+        if (force)
+          wrn ("forced to overwrite second file '%s' with trimmed proof "
+               "even though it looks like a CNF in DIMACS format",
+               files[1].path);
+        else
+          die ("will not overwrite second file '%s' with trimmed proof "
+               "as it looks like a CNF in DIMACS format (use '--force' to "
+               "overwrite nevertheless)",
+               files[1].path);
+      }
       proof.output = &files[1];
     }
   } else {
