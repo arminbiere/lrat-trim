@@ -162,7 +162,7 @@ static struct char_map marked;
 static struct ints_map literals;
 static struct ints_map antecedents;
 static struct deletion_map deleted;
-static struct int_stack resolvent;
+static struct int_stack resolved;
 
 static void die (const char *, ...) __attribute__ ((format (printf, 1, 2)));
 static void err (const char *, ...) __attribute__ ((format (printf, 1, 2)));
@@ -555,26 +555,10 @@ static inline signed char marked_literal (int lit) {
   return res;
 }
 
-static int resolve (int id, int antecedent, int except) {
-  if (antecedent < 0)
-    die ("resolving of negative RAT antecedent %d in clause %d "
-         "not supported yet", antecedent, id);
-  assert (antecedent < SIZE (added));
-  assert (added.begin[antecedent] > 0);
-  assert (antecedent < SIZE (literals));
-  int * l = literals.begin[antecedent];
-  assert (l);
-  if (!*l)
-    die ("can not resolve empty antecedent clause %d of clause %d",
-         antecedent, id);
-  int pivot = *l;
-  dbgs (l, "resolving clause %d on literal %d", antecedent, pivot);
-  return pivot;
-}
-
 static void resolve_antecedents (int id, int *a) {
   assert (resolvent.empty);
   for (int * p = a; *p; p++)
+    ;
 }
 
 static inline bool is_original_clause (int id) {
@@ -1117,6 +1101,10 @@ static void parse_proof () {
       dbgs (work.begin, "clause %d antecedents", id);
       {
         size_t size_antecedents = SIZE (work);
+	if (!size_antecedents)
+	  err ("empty list of antecedents of clause %d", id);
+	if (size_antecedents == 1)
+	  err ("single antecedent of clause %d", id);
         size_t bytes_antecedents = size_antecedents * sizeof (int);
         int *a = malloc (bytes_antecedents);
         if (!a) {
