@@ -8,6 +8,7 @@ static const char * usage =
 "\n"
 "where '<option> ...' is a potentially empty list of the following options\n"
 "\n"
+"  -f | --force            force overwriting second file (looking like a CNF)\n"
 "  -h | --help             print this command line option summary\n"
 #ifdef LOGGING
 "  -l | --log[ging]        print all messages including logging messages\n"
@@ -21,9 +22,9 @@ static const char * usage =
 "and '<file> ...' is a non-empty list of at most four DIMACS and LRAT files:\n"
 "\n"
 "  <input-proof>\n"
-"  <input-proof> <output-proof>\n"
+"  <input-cnf> <input-proof>\n"
 "\n"
-"  <input-cnf> <input-proof> \n"
+"  <input-proof> <output-proof>\n"
 "  <input-cnf> <input-proof> <output-proof>\n"
 "  <input-cnf> <input-proof> <output-proof> <output-cnf>\n"
 "\n"
@@ -140,6 +141,7 @@ struct {
 static const char *no_trimming;
 static bool track_deleted;
 static int verbosity;
+static bool force;
 
 static int *map;
 static int *links;
@@ -1147,7 +1149,9 @@ static void options (int argc, char **argv) {
     if (!strcmp (arg, "-h") || !strcmp (arg, "--help")) {
       fputs (usage, stdout);
       exit (0);
-    } else if (!strcmp (arg, "-l") || !strcmp (arg, "--log") ||
+    } if (!strcmp (arg, "-f") || !strcmp (arg, "--force"))
+      force = true;
+    else if (!strcmp (arg, "-l") || !strcmp (arg, "--log") ||
                !strcmp (arg, "--logging"))
 #ifdef LOGGING
       verbosity = INT_MAX;
@@ -1215,6 +1219,39 @@ static struct file *read_file (struct file *file) {
   return file;
 }
 
+static bool has_suffix (const char * str, const char * suffix) {
+  size_t l = strlen (str), k = strlen (suffix);
+  return l >= k && !strcasecmp (str + l - k, suffix);
+}
+
+static bool looks_like_a_dimacs_file (const char * path) {
+  assert (path);
+  if (!strcmp (path, "-"))
+    return false;
+  if (has_suffix (path, ".cnf"))
+    return true;
+  if (has_suffix (path, ".cnf.gz"))
+    return true;
+  if (has_suffix (path, ".cnf.bz2"))
+    return true;
+  if (has_suffix (path, ".cnf.xz"))
+    return true;
+  if (has_suffix (path, ".dimacs"))
+    return true;
+  if (has_suffix (path, ".dimacs.gz"))
+    return true;
+  if (has_suffix (path, ".dimacs.bz2"))
+    return true;
+  if (has_suffix (path, ".dimacs.xz"))
+    return true;
+  FILE * file = fopen (path, "r");
+  if (!file)
+    return false;
+  int ch = getc (file);
+  fclose (file);
+  return ch == 'c' || ch == 'p';
+}
+
 static void open_input_files () {
   assert (size_files);
   if (size_files == 1)
@@ -1233,6 +1270,10 @@ static void open_input_files () {
       proof.input = file;
       if (no_trimming)
         die ("can not write to '%s' with '%s'", files[1].path, no_trimming);
+      if (!force && looks_like_a_dimacs_file (files[1].path))
+	die ("will not overwrite second file '%s' with trimmed proof "
+	     "as it looks like a CNF in DIMACS format (use '--force' to "
+	     "force overwriting)", files[1].path);
       proof.output = &files[1];
     }
   } else {
