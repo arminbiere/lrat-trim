@@ -55,5 +55,5 @@ COMPILE="gcc -Wall"
 [ $logging = yes ] && COMPILE="$COMPILE -DLOGGING"
 [ $check = no ] && COMPILE="$COMPILE -DNDEBUG"
 
-echo "configure: $COMPILE"
+echo "configure: using '$COMPILE' for compilation"
 sed -e "s#@COMPILE@#$COMPILE#" makefile.in > makefile

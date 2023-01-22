@@ -127,10 +127,13 @@ static size_t size_files;
 
 // Current input and output file for writing and reading functions.
 
-// As we only work on one input sequentially during 'parse_cnf' and then
-// later in 'parse_proof' we keep these files as static global data
-// structures which helps the compiler to optimize 'read_char'.  The same
-// applies to the output file.
+// As we only work on one input sequentially during 'parse_proof' or
+// before optionally in 'parse_cnf' we keep the current 'input' file as
+// static global data structures which helps the compiler to optimize
+// 'read_buffer' and 'read_char' as well code into which theses are inlined.
+// In particular see the discussion below on 'faster_than_default_isdigit'.
+
+// A similar argument applies to the 'output' file.
 
 static struct file input, output;
 
@@ -537,15 +540,25 @@ static int map_id (int id) {
 // after the integer has been reached.  It seems that the claimed fast
 // 'isdigit' from 'libc', which we assume is implemented by a table look-up,
 // prevents some local compiler optimization as soon the character reading
-// code is also inlined (which even for 'getc_unlocked' happens though).
+// code is also inlined (which even for 'getc_unlocked' happened).
+
 // Using the good old range based checked (assuming an ASCII encoding) seems
 // to help the compiler to produce better code (around 5% faster).
+
+// We use 'ISDIGIT' instead of 'isdigit' as the later can itself be a macro.
 
 #define ISDIGIT faster_than_default_isdigit
 
 static inline bool faster_than_default_isdigit (int ch) {
   return '0' <= ch && ch <= '9';
 }
+
+// If the user does have huge integers (larger than 'INT_MAX') in proofs we
+// still want to print those integers in the triggered error message.  This
+// function takes the integer 'n' parsed so far and the digit 'ch'
+// triggering the overflow as argument and then continues reading digits
+// from the input file (for a while) and prints the complete parsed integer
+// string to a statically allocated buffer which is returned.
 
 static const char *exceeds_int_max (int n, int ch) {
   static char buffer[32];
