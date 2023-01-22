@@ -589,8 +589,39 @@ static void parse_cnf () {
   if (!cnf.input)
     return;
   input = *cnf.input;
-  wrn ("checking the input proof on a given CNF not implemented yet");
-  wrn ("(only trimming and writing the input proof)");
+  int ch;
+  for (ch = read_first_char (); ch != 'p'; ch = read_char ())
+    if (ch != 'c')
+      err ("expected 'c' or 'p' as first character");
+    else
+      while ((ch = read_char ()) != '\n')
+        if (ch == EOF)
+          err ("unexpected end-of-file in comment");
+  if (read_char () != ' ')
+    err ("expected space after 'p'");
+  if (read_char () != 'c' || read_char () != 'n' || read_char () != 'f')
+    err ("expected 'p cnf'");
+  if (read_char () != ' ')
+    err ("expected space after 'p cnf'");
+  ch = read_char ();
+  if (!ISDIGIT (ch))
+    err ("expected digit after 'p cnf '");
+  int variables = ch - '0';
+  while (ISDIGIT (ch = read_char ())) {
+    if (INT_MAX/10 < variables)
+NUMBER_OF_VARIABLES_EXCEEDS_INT_MAX:
+      err ("number of variables '%s' exceeds 'INT_MAX'",
+           exceeds_int_max (variables, ch));
+    variables *= 10;
+    int digit = ch - '0';
+    if (INT_MAX - digit < variables) {
+      variables /= 10;
+      goto NUMBER_OF_VARIABLES_EXCEEDS_INT_MAX;
+    }
+    variables += digit;
+  }
+  if (ch != ' ')
+    err ("expected space after 'p cnf %d", variables);
   if (input.close)
     fclose (input.file);
   *cnf.input = input;
