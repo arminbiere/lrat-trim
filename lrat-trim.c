@@ -158,6 +158,7 @@ static int first_clause_added_in_proof;
 
 static struct int_stack work;
 static struct char_map added;
+static struct char_map marked;
 static struct ints_map literals;
 static struct ints_map antecedents;
 static struct deletion_map deleted;
@@ -263,25 +264,34 @@ static void wrn (const char *fmt, ...) {
 
 #define RELEASE(STACK) free ((STACK).begin)
 
-#define ADJUST(MAP, ID) \
+#define ADJUST(MAP, N) \
   do { \
-    size_t NEEDED_SIZE = (size_t)(ID) + 1; \
+    size_t NEEDED_SIZE = (size_t)(N) + 1; \
     size_t OLD_SIZE = SIZE (MAP); \
     if (OLD_SIZE >= NEEDED_SIZE) \
       break; \
     size_t NEW_SIZE = OLD_SIZE ? 2 * OLD_SIZE : 1; \
+    void *OLD_BEGIN = (MAP).begin; \
+    void *NEW_BEGIN; \
     while (NEW_SIZE < NEEDED_SIZE) \
       NEW_SIZE *= 2; \
-    size_t NEW_BYTES = NEW_SIZE * sizeof *(MAP).begin; \
-    void *OLD_BEGIN = (MAP).begin; \
-    void *NEW_BEGIN = realloc (OLD_BEGIN, NEW_BYTES); \
-    if (!NEW_BEGIN) \
-      die ("out-of-memory initializing '" #MAP "' map"); \
+    if (OLD_SIZE) { \
+      size_t NEW_BYTES = NEW_SIZE * sizeof *(MAP).begin; \
+      assert (OLD_BEGIN); \
+      NEW_BEGIN = realloc (OLD_BEGIN, NEW_BYTES); \
+      if (!NEW_BEGIN) \
+        die ("out-of-memory resizing '" #MAP "' map"); \
+      size_t OLD_BYTES = OLD_SIZE * sizeof *(MAP).begin; \
+      size_t DELTA_BYTES = NEW_BYTES - OLD_BYTES; \
+      memset ((char *)NEW_BEGIN + OLD_BYTES, 0, DELTA_BYTES); \
+    } else { \
+      assert (!OLD_BEGIN); \
+      NEW_BEGIN = calloc (NEW_SIZE, sizeof *(MAP).begin); \
+      if (!NEW_BEGIN) \
+        die ("out-of-memory initializing '" #MAP "' map"); \
+    } \
     (MAP).begin = NEW_BEGIN; \
     (MAP).end = (MAP).begin + NEW_SIZE; \
-    size_t OLD_BYTES = OLD_SIZE * sizeof *(MAP).begin; \
-    size_t DELTA_BYTES = NEW_BYTES - OLD_BYTES; \
-    memset ((char *)NEW_BEGIN + OLD_BYTES, 0, DELTA_BYTES); \
   } while (0)
 
 #ifndef NDEBUG
@@ -362,7 +372,8 @@ struct buffer {
 } buffer;
 
 static size_t fill_buffer () {
-  assert (input.file);
+  if (!input.file)
+    return buffer.pos = buffer.end = 0;
   buffer.pos = 0;
   buffer.end = fread (buffer.chars, 1, size_buffer, input.file);
   return buffer.end;
@@ -597,6 +608,8 @@ static const char *exceeds_int_max (int n, int ch) {
 static void parse_cnf () {
   if (!cnf.input)
     return;
+  double start = process_time ();
+  vrb ("starting parsing CNF after %.2f seconds", start);
   input = *cnf.input;
   int ch;
   for (ch = read_first_char (); ch != 'p'; ch = read_char ())
@@ -651,7 +664,11 @@ static void parse_cnf () {
   if (ch != '\n')
     err ("expected new-line after 'p cnf %d %d'", variables, clauses);
   msg ("found 'p cnf %d %d' header", variables, clauses);
+  ADJUST (marked, 1 + 2 * (size_t)variables);
+  ADJUST (literals, clauses);
+  ADJUST (added, clauses);
   int lit = 0, parsed = 0;
+  assert (EMPTY (work));
   for (;;) {
     ch = read_char ();
     if (ch == ' ' || ch == '\t' || ch == '\n')
@@ -666,9 +683,10 @@ static void parse_cnf () {
         else
           err ("%d clauses missing", clauses - parsed);
       }
+      break;
     }
     if (ch == 'c') {
-SKIP_COMMENT_AFTER_HEADER:
+    SKIP_COMMENT_AFTER_HEADER:
       while ((ch = read_char ()) != '\n')
         if (ch == EOF)
           err ("unexpected end-of-file in comment after header");
@@ -690,35 +708,51 @@ SKIP_COMMENT_AFTER_HEADER:
     while (ISDIGIT (ch = read_char ())) {
       if (!idx)
         err ("unexpected digit '%c' after '0'", ch);
-      if (INT_MAX/10 < idx)
-VARIABLE_EXCEEDS_INT_MAX:
-        err ("variable '%s' exceeds 'INT_MAX'",
-	     exceeds_int_max (idx, ch));
+      if (INT_MAX / 10 < idx)
+      VARIABLE_EXCEEDS_INT_MAX:
+        err ("variable '%s' exceeds 'INT_MAX'", exceeds_int_max (idx, ch));
       idx *= 10;
       int digit = ch - '0';
       if (INT_MAX - digit < idx) {
-          idx /= 10;
-          goto VARIABLE_EXCEEDS_INT_MAX;
+        idx /= 10;
+        goto VARIABLE_EXCEEDS_INT_MAX;
       }
       idx += digit;
     }
     lit = sign * idx;
     if (idx > variables)
-      err ("literal '%d' exceeds maximum variable '%d'",
-           lit, variables);
+      err ("literal '%d' exceeds maximum variable '%d'", lit, variables);
+    if (ch != 'c' && ch != ' ' && ch != '\t' && ch != '\n')
+      err ("expected white space after '%d'", lit);
     if (parsed >= clauses)
       err ("too many clauses");
-    else if (lit) {
-    } else
+    PUSH (work, lit);
+    if (!lit) {
+      statistics.original.cnf.added++;
       parsed++;
+      dbgs (work.begin, "clause %d parsed", parsed);
+      CLEAR (work);
+    }
     if (ch == 'c')
       goto SKIP_COMMENT_AFTER_HEADER;
-    if (ch != ' ' && ch != '\t' && ch != '\n')
-      err ("expected white space after '%d'", lit);
   }
+  assert (EMPTY (work));
+  assert (parsed == clauses);
+
   if (input.close)
     fclose (input.file);
   *cnf.input = input;
+
+  vrb ("read %zu CNF lines with %zu bytes (%.0f MB)", input.lines,
+       input.bytes, input.bytes / (double)(1 << 20));
+
+  msg ("parsed CNF proof with %zu added clauses",
+       statistics.original.cnf.added);
+
+  double end = process_time (), duration = end - start;
+  vrb ("finished parsing CNF after %.2f seconds", end);
+  msg ("parsing original CNF took %.2f seconds and needed %.0f MB memory",
+       duration, mega_bytes ());
 }
 
 static void parse_proof () {
@@ -823,9 +857,9 @@ static void parse_proof () {
             }
             *status_ptr = -1;
             size_t deleted_line = input.lines + 1;
-            dbg (
-                "marked clause %d to be deleted at line %zu in deletion %d",
-                other, deleted_line, id);
+            dbg ("marked clause %d to be deleted "
+                 "at line %zu in deletion %d",
+                 other, deleted_line, id);
             other_deletion->line = deleted_line;
             other_deletion->id = id;
           } else if (status < 0)
@@ -1042,13 +1076,14 @@ static void parse_proof () {
   *proof.input = input;
 
   free (added.begin);
+  free (marked.begin);
   free (deleted.begin);
 
   if (!empty_clause)
     wrn ("no empty clause added in input proof");
 
-  vrb ("read %zu lines with %zu bytes (%.0f MB)", input.lines, input.bytes,
-       input.bytes / (double)(1 << 20));
+  vrb ("read %zu proof lines with %zu bytes (%.0f MB)", input.lines,
+       input.bytes, input.bytes / (double)(1 << 20));
 
   msg ("parsed original proof with %zu added and %zu deleted clauses",
        statistics.original.proof.added, statistics.original.proof.deleted);
