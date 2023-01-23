@@ -160,6 +160,9 @@ static const char *notrim;
 static const char *track;
 static int verbosity;
 
+static bool checking;
+static bool trimming;
+
 static int *map;
 static int *links;
 static int *heads;
@@ -641,6 +644,7 @@ static void parse_cnf () {
   double start = process_time ();
   vrb ("starting parsing CNF after %.2f seconds", start);
   input = *cnf.input;
+  msg ("reading CNF from '%s'", input.path);
   int ch;
   for (ch = read_first_char (); ch != 'p'; ch = read_char ())
     if (ch != 'c')
@@ -791,8 +795,7 @@ static void parse_cnf () {
        input.bytes, input.bytes / (double)(1 << 20));
 
   last_clause_added_in_cnf = parsed;
-  msg ("parsed CNF proof with %zu added clauses",
-       statistics.original.cnf.added);
+  msg ("parsed CNF with %zu added clauses", statistics.original.cnf.added);
 
   double end = process_time (), duration = end - start;
   vrb ("finished parsing CNF after %.2f seconds", end);
@@ -926,7 +929,7 @@ static void parse_proof () {
             free (literals.begin[other]);
             literals.begin[other] = 0;
           } else {
-	  }
+          }
         } else if (ch != '\n')
           err ("expected new-line after '0' at end of deletion %d", id);
 #if !defined(NDEBUG) || defined(LOGGING)
@@ -1563,7 +1566,7 @@ static void open_input_files () {
                files[1].path);
       } else
         wrn ("using '%s' while second file '%s' does not look a CNF "
-	     "does not make sense",
+             "does not make sense",
              force, files[1].path);
       proof.output = &files[1];
     }
@@ -1581,6 +1584,9 @@ static void open_input_files () {
     wrn ("using '%s' without CNF does not make sense", nocheck);
   if (!cnf.input && forward)
     wrn ("using '%s' without CNF does not make sense", forward);
+
+  checking = !nocheck && cnf.input;
+  trimming = !notrim && (!forward || proof.output || cnf.output);
 }
 
 static void print_banner () {
@@ -1589,8 +1595,13 @@ static void print_banner () {
   printf ("c LRAT-TRIM Version %s trims LRAT proofs\n"
           "c Copyright (c) 2023 Armin Biere University of Freiburg\n",
           version);
+  fflush (stdout);
+}
 
-  assert (proof.input);
+static void print_mode () {
+  if (verbosity < 0)
+    return;
+
   const char *mode;
   if (cnf.input) {
     if (proof.output) {
@@ -1601,14 +1612,36 @@ static void print_banner () {
     } else if (cnf.output)
       mode = "reading CNF and LRAT files and writing CNF file";
     else
-      mode = "reading CNF and LRAT file";
+      mode = "reading CNF and LRAT files";
   } else {
     if (proof.output)
-      mode = "reading and writing LRAT file";
+      mode = "reading and writing LRAT files";
     else
       mode = "only reading LRAT file";
   }
   printf ("c %s\n", mode);
+
+  if (checking) {
+    if (forward) {
+      if (trimming)
+        mode = "forward checking all clauses followed by trimming proof";
+      else
+        mode = "forward checking all clauses without trimming proof";
+    } else {
+      assert (trimming);
+      if (trimming)
+        mode = "backward checking used clauses after trimming proof";
+      else
+        mode = "backward checking all clauses without trimming proof";
+    }
+  } else {
+    if (trimming)
+      mode = "trimming proof without checking clauses";
+    else
+      mode = "neither trimming proof not checking clauses";
+  }
+  printf ("c %s\n", mode);
+
   fflush (stdout);
 }
 
@@ -1621,6 +1654,7 @@ int main (int argc, char **argv) {
   options (argc, argv);
   open_input_files ();
   print_banner ();
+  print_mode ();
   parse_cnf ();
   parse_proof ();
   trim_proof ();
