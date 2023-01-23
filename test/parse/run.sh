@@ -25,7 +25,7 @@ runcnf () {
   then
     echo "lrat-trim test/parse/$cnf /dev/null # parsing failed as expected"
   else
-    echo "lrat-trim test/parse/$cnf /dev/null # parsing succeeded unexpectedly"
+    echo "lrat-trim test/parse/$cnf /dev/null # unexpected exit code $status"
     exit 1
   fi
 }
@@ -42,7 +42,7 @@ runlrat () {
   then
     echo "lrat-trim test/parse/$lrat # parsing failed as expected"
   else
-    echo "lrat-trim test/parse/$lrat # parsing succeeded unexpectedly"
+    echo "lrat-trim test/parse/$lrat # unexpected exit code $status"
     exit 1
   fi
 }
