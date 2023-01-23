@@ -14,4 +14,5 @@ test: lrat-trim
 	test/parse/run.sh
 	test/regr/run.sh
 	test/trim/run.sh
+	test/check/run.sh
 .PHONY: all clean coverage format test

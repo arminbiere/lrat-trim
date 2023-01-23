@@ -28,7 +28,7 @@ run () {
   status=$?
   if [ $status = 0 ]
   then
-    echo "lrat-trim test/check/$cnf test/check/$lrat # checking failed"
+    echo "lrat-trim test/check/$cnf test/check/$lrat # checking succeeded"
   else
     echo "lrat-trim test/check/$cnf test/check/$lrat # checking failed"
     exit 1
@@ -41,9 +41,9 @@ run () {
   status=$?
   if [ $status = 0 ]
   then
-    echo "lrat-trim test/check/$cnf test/check/$lrat -n # checking failed"
+    echo "lrat-trim test/check/$cnf test/check/$lrat -S # checking succeeded"
   else
-    echo "lrat-trim test/check/$cnf test/check/$lrat -n # checking failed"
+    echo "lrat-trim test/check/$cnf test/check/$lrat -S # checking failed"
     exit 1
   fi
 }
