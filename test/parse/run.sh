@@ -23,9 +23,9 @@ runcnf () {
   status=$?
   if [ $status = 1 ]
   then
-    echo "parsing with 'lrat-trim test/parse/$cnf /dev/null' failed as expected"
+    echo "lrat-trim test/parse/$cnf /dev/null # parsing failed as expected"
   else
-    echo "parsing with 'lrat-trim test/parse/$cnf /dev/null' succeeded unexpectedly"
+    echo "lrat-trim test/parse/$cnf /dev/null # parsing succeeded unexpectedly"
     exit 1
   fi
 }
@@ -40,9 +40,9 @@ runlrat () {
   status=$?
   if [ $status = 1 ]
   then
-    echo "parsing with 'lrat-trim test/parse/$lrat' failed as expected"
+    echo "lrat-trim test/parse/$lrat # parsing failed as expected"
   else
-    echo "parsing with 'lrat-trim test/parse/$lrat' succeeded unexpectedly"
+    echo "lrat-trim test/parse/$lrat # parsing succeeded unexpectedly"
     exit 1
   fi
 }
@@ -124,3 +124,5 @@ lrats=`ls *.lrat|wc -l`
 [ $runs = $errs ] || die "found $runs runs in './run.sh' but $errs '.err' files"
 [ $cnfruns = $cnfs ] || die "found $cnfruns CNF runs in './run.sh' but $cnfs '.cnf' files"
 [ $lratruns = $lrats ] || die "found $lartruns LRAT runs in './run.sh' but $lrats '.lrat' files"
+
+echo "passed $runs parsing tests in 'test/parse/run.sh' ($cnfruns CNFs, $lratruns LRATs)"

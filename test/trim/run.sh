@@ -26,9 +26,9 @@ run () {
   status=$?
   if [ $status = 0 ]
   then
-    echo "trimming with 'lrat-trim test/trim/$lrat' in memory succeeded"
+    echo "lrat-trim test/trim/$lrat # trimming in memory succeeded"
   else
-    echo "trimming with 'lrat-trim test/trim/$lrat' in memory failed"
+    echo "lrat-trim test/trim/$lrat # trimming in memory failed"
     exit 1
   fi
 
@@ -40,9 +40,9 @@ run () {
   status=$?
   if [ $status = 0 ]
   then
-    echo "trimming with 'lrat-trim test/trim/$lrat test/trim/$lrat1' succeeded"
+    echo "lrat-trim test/trim/$lrat test/trim/$lrat1 # trimming succeeded"
   else
-    echo "trimming with 'lrat-trim test/trim/$lrat test/trim/$lrat1' failed"
+    echo "lrat-trim test/trim/$lrat test/trim/$lrat1 # trimming failed"
     exit 1
   fi
 
@@ -54,9 +54,9 @@ run () {
   status=$?
   if [ $status = 0 ]
   then
-    echo "trimming with 'lrat-trim test/trim/$lrat1 test/trim/$lrat2' succeeded"
+    echo "lrat-trim test/trim/$lrat1 test/trim/$lrat2 # trimming succeeded"
   else
-    echo "trimming with 'lrat-trim test/trim/$lrat1 test/trim/$lrat2' failed"
+    echo "lrat-trim test/trim/$lrat1 test/trim/$lrat2 # trimming failed"
     exit 1
   fi
 }
@@ -96,3 +96,5 @@ lrat2s=`ls *lrat|wc -l`
 [ $runs = $lrats ] || die "found $runs runs in './run.sh' but $lrats '.lrat' files"
 [ $runs = $lrat1s ] || die "found $runs runs in './run.sh' but $lrat1s '.lrat1' files"
 [ $runs = $lrat2s ] || die "found $runs runs in './run.sh' but $lrat2s '.lrat2' files"
+
+echo "passed $runs trimming tests in 'test/trim/run.sh'"

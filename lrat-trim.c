@@ -104,9 +104,17 @@ struct ints_map {
   int **begin, **end;
 };
 
+struct addition {
+  size_t line;
+};
+
 struct deletion {
   size_t line;
   int id;
+};
+
+struct addition_map {
+  struct addition *begin, *end;
 };
 
 struct deletion_map {
@@ -157,12 +165,14 @@ static int last_clause_added_in_cnf;
 static int first_clause_added_in_proof;
 
 static struct int_stack work;
-static struct char_map added;
+static struct char_map status;
 static struct char_map marked;
 static struct ints_map literals;
 static struct ints_map antecedents;
 static struct deletion_map deleted;
+#if 0
 static struct int_stack resolved;
+#endif
 
 static void die (const char *, ...) __attribute__ ((format (printf, 1, 2)));
 static void err (const char *, ...) __attribute__ ((format (printf, 1, 2)));
@@ -555,11 +565,13 @@ static inline signed char marked_literal (int lit) {
   return res;
 }
 
+#if 0
 static void resolve_antecedents (int id, int *a) {
-  assert (resolvent.empty);
+  assert (EMPTY (resolved.empty));
   for (int * p = a; *p; p++)
     ;
 }
+#endif
 
 static inline bool is_original_clause (int id) {
   return !id || !first_clause_added_in_proof ||
@@ -679,7 +691,7 @@ static void parse_cnf () {
   msg ("found 'p cnf %d %d' header", variables, clauses);
   ADJUST (marked, variables);
   ADJUST (literals, clauses);
-  ADJUST (added, clauses);
+  ADJUST (status, clauses);
   int lit = 0, parsed = 0;
   assert (EMPTY (work));
   for (;;) {
@@ -742,8 +754,8 @@ static void parse_cnf () {
       err ("too many clauses");
     PUSH (work, lit);
     if (!lit) {
-      statistics.original.cnf.added++;
       parsed++;
+      statistics.original.cnf.added++;
       dbgs (work.begin, "clause %d parsed", parsed);
       size_t size_literals = SIZE (work);
       size_t bytes_literals = size_literals * sizeof (int);
@@ -757,8 +769,8 @@ static void parse_cnf () {
       assert (parsed < SIZE (literals));
       literals.begin[parsed] = l;
       CLEAR (work);
-      assert (parsed < SIZE (added));
-      added.begin[parsed] = 1;
+      assert (parsed < SIZE (status));
+      status.begin[parsed] = 1;
     }
     if (ch == 'c')
       goto SKIP_COMMENT_AFTER_HEADER;
@@ -815,7 +827,7 @@ static void parse_proof () {
       err ("expected space after identifier '%d'", id);
     if (id < last_id)
       err ("identifier '%d' smaller than last '%d'", id, last_id);
-    ADJUST (added, id);
+    ADJUST (status, id);
     ch = read_char ();
     if (ch == 'd') {
       ch = read_char ();
@@ -856,10 +868,10 @@ static void parse_proof () {
                  "larger than deletion identifier '%d'",
                  other, id);
           if (first_clause_added_in_proof)
-            assert (other < SIZE (added));
+            assert (other < SIZE (status));
           else
-            ADJUST (added, other);
-          signed char *status_ptr = added.begin + other;
+            ADJUST (status, other);
+          signed char *status_ptr = status.begin + other;
           signed char status = *status_ptr;
           *status_ptr = -1;
           if (!status && first_clause_added_in_proof) {
@@ -937,7 +949,7 @@ static void parse_proof () {
         vrb ("adding first clause %d in proof", id);
         first_clause_added_in_proof = id;
         if (!last_clause_added_in_cnf) {
-          signed char *begin = added.begin;
+          signed char *begin = status.begin;
           signed char *end = begin + id;
           for (signed char *p = begin + 1; p != end; p++) {
             signed char status = *p;
@@ -1070,13 +1082,13 @@ static void parse_proof () {
           if (other >= id)
             err ("antecedent '%d' in clause %d exceeds clause",
                  signed_other, id);
-          assert (other < SIZE (added));
-          signed char status = added.begin[other];
-          if (!status)
+          assert (other < SIZE (status));
+          signed char s = status.begin[other];
+          if (!s)
             err ("antecedent '%d' in clause %d "
                  "is neither an original clause nor has been added",
                  signed_other, id);
-          else if (status < 0) {
+          else if (s < 0) {
             assert (other < SIZE (deleted));
             if (track_deleted) {
               struct deletion *other_deletion = deleted.begin + other;
@@ -1118,7 +1130,7 @@ static void parse_proof () {
         ADJUST (antecedents, id);
         antecedents.begin[id] = a;
       }
-      added.begin[id] = 1;
+      status.begin[id] = 1;
       statistics.original.proof.added++;
     }
     last_id = id;
@@ -1128,7 +1140,7 @@ static void parse_proof () {
     fclose (input.file);
   *proof.input = input;
 
-  free (added.begin);
+  free (status.begin);
   free (marked.begin);
   free (deleted.begin);
 
@@ -1384,7 +1396,9 @@ static void release () {
   free (links);
   free (heads);
   free (used);
+#if 0
   free (resolvent.begin);
+#endif
   release_ints_map (&literals);
   release_ints_map (&antecedents);
 #endif

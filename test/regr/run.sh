@@ -35,9 +35,9 @@ run () {
   status=$?
   if [ $status = 0 ]
   then
-    echo "trimming with 'lrat-trim ${includecnf}test/regr/$lrat' in memory succeeded"
+    echo "lrat-trim ${includecnf}test/regr/$lrat # trimming in memory succeeded"
   else
-    echo "trimming with 'lrat-trim ${includecnf}test/regr/$lrat' in memory failed"
+    echo "lrat-trim ${includecnf}test/regr/$lrat # trimming in memory failed"
     exit 1
   fi
 
@@ -49,9 +49,9 @@ run () {
   status=$?
   if [ $status = 0 ]
   then
-    echo "trimming with 'lrat-trim ${includecnf}test/regr/$lrat test/regr/$lrat1' succeeded"
+    echo "lrat-trim ${includecnf}test/regr/$lrat test/regr/$lrat1 # trimming succeeded"
   else
-    echo "trimming with 'lrat-trim ${includecnf}test/regr/$lrat test/regr/$lrat1' failed"
+    echo "lrat-trim ${includecnf}test/regr/$lrat test/regr/$lrat1 # trimming failed"
     exit 1
   fi
 }
@@ -77,3 +77,5 @@ lrat1s=`ls *lrat|wc -l`
 [ $runs = $err1s ] || die "found $runs runs in './run.sh' but $err1s '.err1' files"
 [ $runs = $lrats ] || die "found $runs runs in './run.sh' but $lrats '.lrat' files"
 [ $runs = $lrat1s ] || die "found $runs runs in './run.sh' but $lrat1s '.lrat1' files"
+
+echo "passed $runs regression tests in 'test/regr/run.sh'"
