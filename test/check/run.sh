@@ -37,7 +37,7 @@ run () {
   log1=$name.log1
   err1=$name.err1
 
-  $lrattrim $cnf $lrat 1>$log1 2>$err1
+  $lrattrim $cnf $lrat -S 1>$log1 2>$err1
   status=$?
   if [ $status = 0 ]
   then
