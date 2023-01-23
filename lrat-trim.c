@@ -8,16 +8,19 @@ static const char * usage =
 "\n"
 "where '<option> ...' is a potentially empty list of the following options\n"
 "\n"
-"  -f | --force            force overwriting second file (looking like a CNF)\n"
-"  -h | --help             print this command line option summary\n"
+"  -f | --force    overwrite CNF alike second file with proof\n"
+"  -S | --forward  forward check all added clauses eagerly\n"
+"  -h | --help     print this command line option summary\n"
 #ifdef LOGGING
-"  -l | --log[ging]        print all messages including logging messages\n"
+"  -l | --log      print all messages including logging messages\n"
 #endif
-"  -n | --no-trim[ming]    disable trimming as described below\n"
-"  -q | --quiet            be quiet and do not print any messages\n" 
-"  -t | --track[-deleted]  track more deletion information\n"
-"  -v | --verbose          enable verbose messages\n"
-"  -V | --version          print version only\n"
+"  -q | --quiet    be quiet and do not print any messages\n" 
+"  -t | --track    track line information for clauses\n"
+"  -v | --verbose  enable verbose messages\n"
+"  -V | --version  print version only\n"
+"\n"
+"  --no-check      disable checking clauses (default without CNF)\n"
+"  --no-trim       disable trimming (assume all clauses used)\n"
 "\n"
 "and '<file> ...' is a non-empty list of at most four DIMACS and LRAT files:\n"
 "\n"
@@ -44,7 +47,7 @@ static const char * usage =
 "is always tracked and checked precisely.  It is considered and error if\n"
 "a clause is used in a proof line which been deleted before.  In order to\n"
 "determine in which proof line exactly the offending clause was deleted\n"
-"the user can specify '--track-deleted' to track this information which\n"
+"the user can specify '--track' to track this information which\n"
 "will then yield a more informative error message.\n"
 "\n"
 "If the CNF or the proof contains an empty clause, then proof checking\n"
@@ -150,10 +153,12 @@ struct {
   struct file *input, *output;
 } cnf, proof;
 
-static const char *no_trimming;
-static bool track_deleted;
+static const char *force;
+static const char *forward;
+static const char *nocheck;
+static const char *notrim;
+static const char *track;
 static int verbosity;
-static bool force;
 
 static int *map;
 static int *links;
@@ -880,7 +885,7 @@ static void parse_proof () {
                  "is neither an original clause nor has been added",
                  other, id);
           }
-          if (track_deleted) {
+          if (track) {
             ADJUST (deleted, other);
             struct deletion *other_deletion = deleted.begin + other;
             if (!status && first_clause_added_in_proof) {
@@ -911,7 +916,8 @@ static void parse_proof () {
             statistics.original.cnf.deleted++;
           else
             statistics.original.proof.deleted++;
-          if (no_trimming) {
+          if (forward) {
+          } else {
             assert (!proof.output);
             assert (!cnf.output);
             assert (other < SIZE (antecedents));
@@ -1090,7 +1096,7 @@ static void parse_proof () {
                  signed_other, id);
           else if (s < 0) {
             assert (other < SIZE (deleted));
-            if (track_deleted) {
+            if (track) {
               struct deletion *other_deletion = deleted.begin + other;
               assert (other_deletion->id);
               assert (other_deletion->line);
@@ -1113,10 +1119,10 @@ static void parse_proof () {
       dbgs (work.begin, "clause %d antecedents", id);
       {
         size_t size_antecedents = SIZE (work);
-	if (!size_antecedents)
-	  err ("empty list of antecedents of clause %d", id);
-	if (size_antecedents == 1)
-	  err ("single antecedent of clause %d", id);
+        if (!size_antecedents)
+          err ("empty list of antecedents of clause %d", id);
+        if (size_antecedents == 1)
+          err ("single antecedent of clause %d", id);
         size_t bytes_antecedents = size_antecedents * sizeof (int);
         int *a = malloc (bytes_antecedents);
         if (!a) {
@@ -1179,7 +1185,7 @@ static inline bool mark_used (int id, int used_where) {
 
 static void trim_proof () {
 
-  if (no_trimming)
+  if (notrim)
     return;
 
   double start = process_time ();
@@ -1421,9 +1427,10 @@ static void options (int argc, char **argv) {
       exit (0);
     }
     if (!strcmp (arg, "-f") || !strcmp (arg, "--force"))
-      force = true;
-    else if (!strcmp (arg, "-l") || !strcmp (arg, "--log") ||
-             !strcmp (arg, "--logging"))
+      force = arg;
+    else if (!strcmp (arg, "-S") || !strcmp (arg, "--forward"))
+      forward = arg;
+    else if (!strcmp (arg, "-l") || !strcmp (arg, "--log"))
 #ifdef LOGGING
       verbosity = INT_MAX;
 #else
@@ -1431,15 +1438,15 @@ static void options (int argc, char **argv) {
 #endif
     else if (!strcmp (arg, "-q") || !strcmp (arg, "--quiet"))
       verbosity = -1;
-    else if (!strcmp (arg, "-t") || !strcmp (arg, "--track") ||
-             !strcmp (arg, "--track-deleted"))
-      track_deleted = true;
+    else if (!strcmp (arg, "-t") || !strcmp (arg, "--track"))
+      track = arg;
     else if (!strcmp (arg, "-v") || !strcmp (arg, "--verbose")) {
       if (verbosity <= 0)
         verbosity = 1;
-    } else if (!strcmp (arg, "-n") || !strcmp (arg, "--no-trim") ||
-               !strcmp (arg, "--no-trimming"))
-      no_trimming = arg;
+    } else if (!strcmp (arg, "--no-check"))
+      nocheck = arg;
+    else if (!strcmp (arg, "--no-trim"))
+      notrim = arg;
     else if (!strcmp (arg, "-V") || !strcmp (arg, "--version"))
       fputs (version, stdout), fputc ('\n', stdout), exit (0);
     else if (arg[0] == '-' && arg[1])
@@ -1454,8 +1461,8 @@ static void options (int argc, char **argv) {
   if (!size_files)
     die ("no input file given (try '-h')");
 
-  if (size_files > 2 && no_trimming)
-    die ("can not write to '%s' with '%s", files[2].path, no_trimming);
+  if (size_files > 2 && notrim)
+    die ("can not write to '%s' with '%s", files[2].path, notrim);
 
   for (size_t i = 0; i + 1 != size_files; i++)
     if (strcmp (files[i].path, "-") && strcmp (files[i].path, "/dev/null"))
@@ -1537,10 +1544,13 @@ static void open_input_files () {
     if (ch == 'c' || ch == 'p') {
       cnf.input = file;
       proof.input = read_file (&files[1]);
+      if (force)
+        wrn ("using '%s' with CNF as first file '%s' does not make sense",
+             force, files[0].path);
     } else {
       proof.input = file;
-      if (no_trimming)
-        die ("can not write to '%s' with '%s'", files[1].path, no_trimming);
+      if (notrim)
+        die ("can not write to '%s' with '%s'", files[1].path, notrim);
       if (looks_like_a_dimacs_file (files[1].path)) {
         if (force)
           wrn ("forced to overwrite second file '%s' with trimmed proof "
@@ -1551,7 +1561,10 @@ static void open_input_files () {
                "as it looks like a CNF in DIMACS format (use '--force' to "
                "overwrite nevertheless)",
                files[1].path);
-      }
+      } else
+        wrn ("using '%s' while second file '%s' does not look a CNF "
+	     "does not make sense",
+             force, files[1].path);
       proof.output = &files[1];
     }
   } else {
@@ -1562,6 +1575,12 @@ static void open_input_files () {
     if (size_files == 4)
       cnf.output = &files[3];
   }
+  if (force && size_files != 2)
+    wrn ("using '%s' without two files does not make sense", force);
+  if (!cnf.input && nocheck)
+    wrn ("using '%s' without CNF does not make sense", nocheck);
+  if (!cnf.input && forward)
+    wrn ("using '%s' without CNF does not make sense", forward);
 }
 
 static void print_banner () {
@@ -1576,7 +1595,7 @@ static void print_banner () {
   if (cnf.input) {
     if (proof.output) {
       if (cnf.output)
-        mode = "reading and writing both CNF and LRAT files";
+        mode = "reading CNF and LRAT files and writing them too";
       else
         mode = "reading CNF and LRAT files and writing LRAT file";
     } else if (cnf.output)
