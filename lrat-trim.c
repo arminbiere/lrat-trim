@@ -917,7 +917,6 @@ static void parse_proof () {
           else
             statistics.original.proof.deleted++;
           if (forward) {
-          } else {
             assert (!proof.output);
             assert (!cnf.output);
             assert (other < SIZE (antecedents));
@@ -926,7 +925,8 @@ static void parse_proof () {
             assert (other < SIZE (literals));
             free (literals.begin[other]);
             literals.begin[other] = 0;
-          }
+          } else {
+	  }
         } else if (ch != '\n')
           err ("expected new-line after '0' at end of deletion %d", id);
 #if !defined(NDEBUG) || defined(LOGGING)
