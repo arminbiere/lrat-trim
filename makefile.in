@@ -9,7 +9,7 @@ clean:
 coverage: test
 	gcov lrat-trim.c
 format:
-	clang-format lrat-trim.c
+	clang-format -i lrat-trim.c
 test: lrat-trim
 	test/parse/run.sh
 	test/regr/run.sh
