@@ -167,10 +167,6 @@ static int verbosity;
 static bool checking;
 static bool trimming;
 
-static int *map;
-static int *links;
-static int *heads;
-
 static int empty_clause;
 static int last_clause_added_in_cnf;
 static int first_clause_added_in_proof;
@@ -186,7 +182,11 @@ static struct {
   struct ints_map literals;
   struct ints_map antecedents;
   struct deletion_map deleted;
+  struct addition_map added;
   struct int_map used;
+  struct int_map heads;
+  struct int_map links;
+  struct int_map map;
 } clauses;
 
 static void die (const char *, ...) __attribute__ ((format (printf, 1, 2)));
@@ -834,10 +834,12 @@ static void parse_proof () {
   struct int_stack parsed_antecedents;
   ZERO (parsed_literals);
   ZERO (parsed_antecedents);
+  size_t line = 0;
   while (ch != EOF) {
     if (!isdigit (ch))
       err ("expected digit as first character of line");
-    int id = (ch - '0');
+    line = input.lines;
+    int id = ch - '0';
     while (ISDIGIT (ch = read_char ())) {
       if (!id)
         err ("unexpected digit '%c' after '0'", ch);
@@ -846,7 +848,7 @@ static void parse_proof () {
         err ("line identifier '%s' exceeds 'INT_MAX'",
              exceeds_int_max (id, ch));
       id *= 10;
-      int digit = (ch - '0');
+      int digit = ch - '0';
       if (INT_MAX - digit < id) {
         id /= 10;
         goto LINE_IDENTIFIER_EXCEEDS_INT_MAX;
@@ -857,6 +859,7 @@ static void parse_proof () {
       err ("expected space after identifier '%d'", id);
     if (id < last_id)
       err ("identifier '%d' smaller than last '%d'", id, last_id);
+    dbg ("parsed clause identifier %d at line %zu", id, line + 1);
     ADJUST (clauses.status, id);
     ch = read_char ();
     if (ch == 'd') {
@@ -883,7 +886,7 @@ static void parse_proof () {
                  "in deletion %d",
                  exceeds_int_max (other, ch), id);
           other *= 10;
-          int digit = (ch - '0');
+          int digit = ch - '0';
           if (INT_MAX - digit < other) {
             other /= 10;
             goto DELETED_CLAUSE_IDENTIFIER_EXCEEDS_INT_MAX;
@@ -1163,6 +1166,11 @@ static void parse_proof () {
         ACCESS (clauses.antecedents, id) = a;
       }
       ACCESS (clauses.status, id) = 1;
+      if (track) {
+	ADJUST (clauses.added, id);
+	struct addition * addition = &ACCESS (clauses.added, id);
+	addition->line = line;
+      }
       statistics.original.proof.added++;
     }
     last_id = id;
@@ -1174,9 +1182,10 @@ static void parse_proof () {
     fclose (input.file);
   *proof.input = input;
 
-  RELEASE (clauses.status);
   RELEASE (clauses.deleted);
   RELEASE (variables.marked);
+  RELEASE (clauses.added);
+  RELEASE (clauses.status);
 
   if (!empty_clause)
     wrn ("no empty clause added in input proof");
@@ -1291,7 +1300,11 @@ static void close_output_proof () {
 static int map_id (int id) {
   assert (id != INT_MIN);
   int abs_id = abs (id);
-  int res = id < first_clause_added_in_proof ? id : map[abs_id];
+  int res;
+  if (id < first_clause_added_in_proof)
+    res = id;
+  else
+    res = ACCESS (clauses.map, abs_id);
   if (id < 0)
     res = -res;
   return res;
@@ -1303,22 +1316,16 @@ static void write_non_empty_proof () {
   assert (output.file);
 
   assert (empty_clause > 0);
-  size_t needed_clauses_size = (size_t)empty_clause + 1;
-
-  links = calloc (needed_clauses_size, sizeof *links);
-  if (!links)
-    die ("out-of-memory allocating used links");
-  heads = calloc (needed_clauses_size, sizeof *heads);
-  if (!heads)
-    die ("out-of-memory allocating used list headers");
+  ADJUST (clauses.links, empty_clause);
+  ADJUST (clauses.heads, empty_clause);
 
   for (int id = 1; id != first_clause_added_in_proof; id++) {
     int where = ACCESS (clauses.used, id);
     if (where) {
       assert (id < where);
       assert (!is_original_clause (where));
-      links[id] = heads[where];
-      heads[where] = id;
+      ACCESS (clauses.links, id) = ACCESS (clauses.heads, where);
+      ACCESS (clauses.heads, where) = id;
     } else {
       if (!statistics.trimmed.cnf.deleted) {
         write_int (first_clause_added_in_proof - 1);
@@ -1338,9 +1345,7 @@ static void write_non_empty_proof () {
          statistics.trimmed.cnf.deleted);
   }
 
-  map = calloc (needed_clauses_size, sizeof *map);
-  if (!map)
-    die ("out-of-memory allocating identifier map");
+  ADJUST (clauses.map, empty_clause);
 
   int id = first_clause_added_in_proof;
   int mapped = id;
@@ -1350,9 +1355,9 @@ static void write_non_empty_proof () {
     if (where) {
       if (id != empty_clause) {
         assert (id < where);
-        links[id] = heads[where];
-        heads[where] = id;
-        map[id] = mapped;
+        ACCESS (clauses.links, id) = ACCESS (clauses.heads, where);
+        ACCESS (clauses.heads, where) = id;
+        ACCESS (clauses.map, id) = mapped;
       }
       write_int (mapped);
       int *l = ACCESS (clauses.literals, id);
@@ -1369,7 +1374,7 @@ static void write_non_empty_proof () {
         write_int (map_id (other));
       }
       write_str (" 0\n");
-      int head = heads[id];
+      int head = ACCESS (clauses.heads, id);
       if (head) {
         write_int (mapped);
         write_str (" d");
@@ -1380,7 +1385,7 @@ static void write_non_empty_proof () {
             statistics.trimmed.proof.deleted++;
           write_space ();
           write_int (map_id (link));
-          next = links[link];
+          next = ACCESS (clauses.links, link);
         }
         write_str (" 0\n");
       }
@@ -1426,9 +1431,9 @@ static void write_cnf () {
 
 static void release () {
 #ifndef NDEBUG
-  free (map);
-  free (links);
-  free (heads);
+  RELEASE (clauses.heads);
+  RELEASE (clauses.links);
+  RELEASE (clauses.map);
   RELEASE (clauses.used);
 #if 0
   free (resolvent.begin);
