@@ -173,9 +173,8 @@ static int first_clause_added_in_proof;
 
 static struct { struct char_map marked; } variables;
 
-#if 0
+static struct int_stack resolvent;
 static struct int_stack resolved;
-#endif
 
 static struct {
   struct char_map status;
@@ -480,7 +479,7 @@ static void flush_buffer () {
   if (!bytes)
     return;
   size_t written = fwrite (buffer.chars, 1, bytes, output.file);
-  if (written != buffer.pos) {
+  if (written != bytes) {
     if (output.path)
       die ("flushing %zu bytes of write buffer to '%s' failed", bytes,
            output.path);
@@ -586,14 +585,6 @@ static inline signed char marked_literal (int lit) {
     res = -res;
   return res;
 }
-
-#if 0
-static void resolve_antecedents (int id, int *a) {
-  assert (EMPTY (resolved.empty));
-  for (int * p = a; *p; p++)
-    ;
-}
-#endif
 
 static inline bool is_original_clause (int id) {
   return !id || !first_clause_added_in_proof ||
@@ -835,9 +826,17 @@ static void parse_proof () {
   ZERO (parsed_literals);
   ZERO (parsed_antecedents);
   size_t line = 0;
+  bool first = true;
   while (ch != EOF) {
-    if (!isdigit (ch))
-      err ("expected digit as first character of line");
+    if (!isdigit (ch)) {
+      if (first && (ch == 'c' || ch == 'p'))
+        err ("unexpected '%c' as first character: "
+             "did you use a CNF instead of a proof file?",
+             ch);
+      else
+        err ("expected digit as first character of line");
+    }
+    first = false;
     line = input.lines;
     int id = ch - '0';
     while (ISDIGIT (ch = read_char ())) {
@@ -952,7 +951,6 @@ static void parse_proof () {
             int **l = &ACCESS (clauses.literals, other);
             free (*l);
             *l = 0;
-          } else {
           }
         } else if (ch != '\n')
           err ("expected new-line after '0' at end of deletion %d", id);
@@ -1167,9 +1165,9 @@ static void parse_proof () {
       }
       ACCESS (clauses.status, id) = 1;
       if (track) {
-	ADJUST (clauses.added, id);
-	struct addition * addition = &ACCESS (clauses.added, id);
-	addition->line = line;
+        ADJUST (clauses.added, id);
+        struct addition *addition = &ACCESS (clauses.added, id);
+        addition->line = line;
       }
       statistics.original.proof.added++;
     }
@@ -1435,9 +1433,8 @@ static void release () {
   RELEASE (clauses.links);
   RELEASE (clauses.map);
   RELEASE (clauses.used);
-#if 0
   free (resolvent.begin);
-#endif
+  free (resolved.begin);
   release_ints_map (&clauses.literals);
   release_ints_map (&clauses.antecedents);
 #endif
