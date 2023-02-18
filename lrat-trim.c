@@ -609,20 +609,25 @@ static inline signed char marked_literal (int lit) {
 static void check_clause (int id, int *literals, int *antecedents) {
   assert (EMPTY (resolved));
   checked.clauses++;
-  for (int *a = antecedents; *a; a++) {
-    int aid = *a;
+  int * a = antecedents;
+  bool first = true;
+  while (*a)
+    a++;
+  while (a != antecedents) {
+    int aid = *--a;
     if (aid < 0)
       crr (id, "checking negative RAT antecedent '%d' not supported", aid);
     assert (ACCESS (clauses.status, aid) > 0);
-    int *als = ACCESS (clauses.literals, aid);
-    int pivot = 0;
-    for (int *l = als, lit; (lit = *l); l++) {
+    int *als = ACCESS (clauses.literals, aid), pivot = 0;
+    dbgs (als, "resolving antecedent %d clause", aid);
+    for (int * l = als, lit; (lit = *l); l++) {
       signed char mark = marked_literal (lit);
       if (mark > 0)
         continue;
       if (!mark) {
         mark_literal (lit);
         PUSH (resolved, lit);
+	dbg ("resolved literal %d", lit);
         resolved.literals++;
       } else if (pivot)
         crr (id, "antecedent '%d' clashes on '%d and '%d'", aid, pivot,
@@ -630,14 +635,27 @@ static void check_clause (int id, int *literals, int *antecedents) {
       else
         pivot = lit;
     }
-    if (a == antecedents)
-      assert (!pivot);
+    if (first)
+      assert (!pivot), first = false;
     else if (!pivot)
       crr (id, "antecedent '%d' can not be resolved", aid);
     else {
       dbgs (als, "antecedent %d pivot %d resolved", aid, pivot);
       unmark_literal (-pivot);
     }
+#ifdef LOGGING
+    if (logging ()) {
+      logging_prefix ("resolving antecedent clause %d yields resolvent", id);
+      for (int * r = resolved.begin; r != resolved.end; r++) {
+	int lit = *r;
+	signed char mark = marked_literal (lit);
+	assert (mark >= 0);
+	if (mark > 0)
+	  printf (" %d", lit);
+      }
+      logging_suffix ();
+    }
+#endif
     resolved.clauses++;
   }
   for (int *l = literals, lit; (lit = *l); l++) {
