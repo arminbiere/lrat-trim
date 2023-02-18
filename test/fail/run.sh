@@ -36,7 +36,7 @@ run () {
 
 run emptycnf
 
-runs=`expr $lratruns + $cnfruns`
+runs=`grep '^run [a-z]' run.sh|wc -l`
 
 logs=`ls *.log|wc -l`
 errs=`ls *.err|wc -l`

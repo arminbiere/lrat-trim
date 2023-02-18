@@ -49,7 +49,7 @@ run () {
 }
 
 runs=0
-for i in *.lrat
+for i in `ls -S *.lrat`
 do
   name=`basename $i .lrat`
   run $name

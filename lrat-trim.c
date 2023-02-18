@@ -942,7 +942,7 @@ static void parse_proof () {
             statistics.original.cnf.deleted++;
           else
             statistics.original.proof.deleted++;
-          if (forward) {
+          if (!trimming || (checking && forward)) {
             assert (!proof.output);
             assert (!cnf.output);
             int **a = &ACCESS (clauses.antecedents, other);
