@@ -174,7 +174,7 @@ static int first_clause_added_in_proof;
 static struct { struct char_map marked; } variables;
 
 static struct {
-  int * begin, * end, * allocated;
+  int *begin, *end, *allocated;
   size_t literals, clauses;
 } resolved;
 
@@ -623,9 +623,10 @@ static void check_clause (int id, int *literals, int *antecedents) {
       if (!mark) {
         mark_literal (lit);
         PUSH (resolved, lit);
-	resolved.literals++;
+        resolved.literals++;
       } else if (pivot)
-        crr (id, "antecedent '%d' clashes on '%d and '%d'", aid, pivot, lit);
+        crr (id, "antecedent '%d' clashes on '%d and '%d'", aid, pivot,
+             lit);
       else
         pivot = lit;
     }
@@ -1747,12 +1748,12 @@ static void print_mode () {
 
 static void print_statistics () {
   double t = process_time ();
-  msg ("checked %zu clauses %.0f per second",
-       checked.clauses, average (checked.clauses, t));
-  msg ("resolved %zu clauses %.2f per checked clause",
-       resolved.clauses, average (resolved.clauses, checked.clauses));
-  msg ("resolved %zu literals %.2f per resolved clause",
-       resolved.literals, average (resolved.literals, resolved.clauses));
+  msg ("checked %zu clauses %.0f per second", checked.clauses,
+       average (checked.clauses, t));
+  msg ("resolved %zu clauses %.2f per checked clause", resolved.clauses,
+       average (resolved.clauses, checked.clauses));
+  msg ("resolved %zu literals %.2f per resolved clause", resolved.literals,
+       average (resolved.literals, resolved.clauses));
   msg ("maximum memory usage of %.0f MB", mega_bytes ());
   msg ("total time of %.2f seconds", t);
 }
@@ -1772,7 +1773,8 @@ int main (int argc, char **argv) {
     printf ("s VERIFIED\n");
     fflush (stdout);
     res = 20;
-  } else msg ("no empty clause found and checked");
+  } else
+    msg ("no empty clause found and checked");
   release ();
   print_statistics ();
   return res;
