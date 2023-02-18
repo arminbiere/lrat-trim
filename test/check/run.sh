@@ -24,13 +24,20 @@ run () {
   [ -f $cnf ] || die "could not find '$cnf'"
   [ -f $lrat ] || die "could not find '$lrat'"
 
+  if [ x"`grep '^[0-9][0-9]* 0' $lrat`" = x ]
+  then
+    expected=0
+  else
+    expected=20
+  fi
+
   $lrattrim $cnf $lrat 1>$log 2>$err
   status=$?
-  if [ $status = 0 ]
+  if [ $status = $expected ]
   then
-    echo "lrat-trim test/check/$cnf test/check/$lrat # checking succeeded"
+    echo "lrat-trim test/check/$cnf test/check/$lrat # checking succeeded with exit status '$status'"
   else
-    echo "lrat-trim test/check/$cnf test/check/$lrat # checking failed"
+    echo "lrat-trim test/check/$cnf test/check/$lrat # checking failed with exit status '$status' (expected '$expected')"
     exit 1
   fi
 
@@ -39,11 +46,11 @@ run () {
 
   $lrattrim $cnf $lrat -S 1>$log1 2>$err1
   status=$?
-  if [ $status = 0 ]
+  if [ $status = $expected ]
   then
-    echo "lrat-trim test/check/$cnf test/check/$lrat -S # checking succeeded"
+    echo "lrat-trim test/check/$cnf test/check/$lrat -S # checking succeeded with exit status '$status'"
   else
-    echo "lrat-trim test/check/$cnf test/check/$lrat -S # checking failed"
+    echo "lrat-trim test/check/$cnf test/check/$lrat -S # checking failed with exit status '$status' (expected '$expected')"
     exit 1
   fi
 }
