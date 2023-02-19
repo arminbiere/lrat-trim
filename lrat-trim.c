@@ -1288,7 +1288,6 @@ static void parse_proof () {
   *proof.input = input;
 
   RELEASE (clauses.deleted);
-  RELEASE (variables.values);
   RELEASE (clauses.added);
   RELEASE (clauses.status);
 
@@ -1386,6 +1385,8 @@ static void check_proof () {
     if (where) {
       int * l = ACCESS (clauses.literals, id);
       int * a = ACCESS (clauses.antecedents, id);
+      dbgs (l, "checking clause %d literals", id);
+      dbgs (a, "checking clause %d antecedents", id);
       check_clause (id, l, a);
     }
     if (id++ == empty_clause)
@@ -1565,6 +1566,7 @@ static void release () {
   RELEASE (clauses.links);
   RELEASE (clauses.map);
   RELEASE (clauses.used);
+  RELEASE (variables.values);
   RELEASE (trail);
   release_ints_map (&clauses.literals);
   release_ints_map (&clauses.antecedents);

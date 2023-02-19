@@ -50,9 +50,20 @@ case $radicalstatus in
   *) die "unexpected 'radical' exit status '$radicalstatus'";;
 esac
 
-msg "forward checking with 'lrat-trim'"
-$lrattrim -S $cnf $lrat > $log2
-lrattrimstatus=$?
+if false
+then
+
+  msg "backward checking with 'lrat-trim'"
+  $lrattrim $cnf $lrat -S > $log2
+  lrattrimstatus=$?
+
+else
+
+  msg "forward checking with 'lrat-trim'"
+  $lrattrim $cnf $lrat > $log2
+  lrattrimstatus=$?
+
+fi
 
 cat $log2
 

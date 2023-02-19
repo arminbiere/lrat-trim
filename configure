@@ -48,7 +48,7 @@ COMPILE="gcc -Wall"
 [ $logging = unknown ] && logging=$debug
 [ $symbols = unknown ] && symbols=$debug
 
-[ $symbols = yes ] && COMPILE="$COMPILE -g"
+[ $symbols = yes ] && COMPILE="$COMPILE -g -ggdb3"
 [ $coverage = yes ] && COMPILE="$COMPILE -ftest-coverage -fprofile-arcs"
 [ $sanitize = yes ] && COMPILE="$COMPILE -fsanitize=address,undefined"
 [ $debug = no ] && COMPILE="$COMPILE -O3"
