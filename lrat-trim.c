@@ -1044,7 +1044,7 @@ static void parse_proof () {
             assert (!cnf.output);
             if (checking && forward)
               assert (EMPTY (clauses.antecedents));
-            else {
+            else if (trimming) {
               int **a = &ACCESS (clauses.antecedents, other);
               free (*a);
               *a = 0;
@@ -1757,7 +1757,6 @@ static void print_mode () {
       else
         mode = "forward checking all clauses without trimming proof";
     } else {
-      assert (trimming);
       if (trimming)
         mode = "backward checking used clauses after trimming proof";
       else
