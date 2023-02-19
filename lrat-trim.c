@@ -37,36 +37,40 @@ static const char * usage =
 "the proof is trimmed only in memory producing trimming statistics.\n"
 "\n"
 "If an input CNF is also specified then it is assumed to be in DIMACS format\n"
-"and parsed before reading the LRAT proof.  Providing a CNF allows to check\n"
-"and not only trim a proof.  If checking fails an error message is produced\n"
-"and the program aborts with a non-zero exit code.  If checking succeeds\n"
-"the exit code is zero. If further an empty clause was found 's VERIFIED'\n"
-"is printed.\n"
+"and parsed before reading the LRAT proof.  Providing a CNF triggers to\n"
+"check and not only trim a proof.  If checking fails an error message is\n"
+"produced and the program aborts with exit code '1'.  If checking succeeds\n"
+"the exit code is '0', if no empty clause was derived. Otherwise if the CNF\n"
+"or proof contains an empty clause and checking succeeds, then the exit\n"
+"code is '20', i.e., the same exit code as for unsatisfiable formulas in\n"
+"the SAT competition.  In this case 's VERIFIED' is printed too.\n"
 "\n"
 "The status of clauses, i.e., whether they are added or have been deleted\n"
 "is always tracked and checked precisely.  It is considered and error if\n"
-"a clause is used in a proof line which been deleted before.  In order to\n"
+"a clause is used in a proof line which was deleted before.  In order to\n"
 "determine in which proof line exactly the offending clause was deleted\n"
-"the user can specify '--track' to track this information which\n"
-"will then yield a more informative error message.\n"
+"the user can additionally specify '--track' to track this information,\n"
+"which can then give a more informative error message.\n"
 "\n"
-"If the CNF or the proof contains an empty clause, then proof checking\n"
-"is restricted to the trimmed proof.  Without empty clause, neither in\n"
-"the CNF nor in the proof, trimming is skipped.  The same effect can be\n"
-"achieved by using '--no-trimming', which has the additional benefit to\n"
+"If the CNF or the proof contains an empty clause, proof checking is by\n"
+"default restricted to the trimmed proof.  Without empty clause, neither\n"
+"in the CNF nor in the proof, trimming is skipped.  The same effect can\n"
+"be achieved by using '--no-trim', which has the additional benefit to\n"
 "enforce forward on-the-fly checking while parsing the proof. This mode\n"
 "allows to delete clauses eagerly and gives the chance to reduce memory\n"
-"usage substantially.  Without trimming no output files are written.\n"
+"usage substantially.\n"
 "\n"
-"At most one of the input path names can be '-' which leads to reading the\n"
-"corresponding input from '<stdin>'.  Similarly using '-' for one of the\n"
-"outputs writes to '<stdout>'.  When exactly two files are given the first\n"
-"file is opened and read first and its format (LRAT or DIMACS) is determined\n"
-"by checking the first read character ('p' or 'c' gives DIMACS format).\n"
-"This then also determines the type of the second file as proof output or\n"
-"input.  Two files can not have the same specified file path except for '-'\n"
-"and '/dev/null'.  The latter is a hard-coded name and will not actually be\n"
-"opened nor written to '/dev/null' (whether it exists or not on the system).\n"
+"At most one of the input path names can be '-' which leads to reading\n"
+"the corresponding input from '<stdin>'.  Similarly using '-' for one\n"
+"of the output files writes to '<stdout>'.  When exactly two files are\n"
+"given the first file is opened and read first and to determine its format\n"
+"(LRAT or DIMACS) by checking the first read character ('p' or 'c' gives\n"
+"DIMACS format).  The result also determines the type of the second file\n"
+"as either proof output or as proof input.  Two files can not have the\n"
+"same specified file path except for '-' and '/dev/null'.  The latter is a\n"
+"hard-coded name and will not actually be opened nor written to '/dev/null'\n"
+"(whether it exists or not on the system).\n"
+
 ;
 
 // clang-format on
@@ -1032,7 +1036,7 @@ static void parse_proof () {
           } else if (status < 0)
             prr ("clause %d requested to be deleted in deletion %d "
                  "was already deleted before "
-                 "(run with '--track-deleted' for more information)",
+                 "(run with '--track' for more information)",
                  other, id);
           if (is_original_clause (id))
             statistics.original.cnf.deleted++;
@@ -1238,7 +1242,7 @@ static void parse_proof () {
                    other_deletion->line);
             } else
               prr ("antecedent %d in clause %d was already deleted before"
-                   "(run with '--track-deleted' for more information)",
+                   "(run with '--track' for more information)",
                    other, id);
           }
         } else {
@@ -1250,10 +1254,7 @@ static void parse_proof () {
       } while (last);
       dbgs (parsed_antecedents.begin, "clause %d antecedents", id);
       size_t size_antecedents = SIZE (parsed_antecedents);
-      if (!size_antecedents)
-        prr ("empty list of antecedents of clause %d", id);
-      if (size_antecedents == 1)
-        prr ("single antecedent of clause %d", id);
+      assert (size_antecedents > 0);
       if (track) {
         ADJUST (clauses.added, id);
         struct addition *addition = &ACCESS (clauses.added, id);
