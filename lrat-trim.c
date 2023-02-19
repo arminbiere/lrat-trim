@@ -1502,10 +1502,10 @@ static void write_empty_proof () {
 }
 
 static void write_proof () {
-  double start = process_time ();
-  vrb ("starting writing proof after %.2f seconds", start);
   if (!proof.output)
     return;
+  double start = process_time ();
+  vrb ("starting writing proof after %.2f seconds", start);
   buffer.pos = 0;
   output = *write_file (proof.output);
   msg ("writing proof to '%s'", output.path);
