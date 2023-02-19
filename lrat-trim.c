@@ -1036,9 +1036,13 @@ static void parse_proof () {
           if (!trimming || (checking && forward)) {
             assert (!proof.output);
             assert (!cnf.output);
-            int **a = &ACCESS (clauses.antecedents, other);
-            free (*a);
-            *a = 0;
+	    if (checking && forward)
+	      assert (EMPTY (clauses.antecedents));
+	    else {
+	      int **a = &ACCESS (clauses.antecedents, other);
+	      free (*a);
+	      *a = 0;
+	    }
             int **l = &ACCESS (clauses.literals, other);
             free (*l);
             *l = 0;
