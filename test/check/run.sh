@@ -33,8 +33,7 @@ run () {
 
   $lrattrim $cnf $lrat 1>$log 2>$err
   status=$?
-  #if [ $status = $expected ]
-  if [ $status = 0 ]
+  if [ $status = $expected ]
   then
     echo "lrat-trim test/check/$cnf test/check/$lrat # checking succeeded with exit status '$status'"
   else

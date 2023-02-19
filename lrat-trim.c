@@ -627,7 +627,7 @@ static void crr (int id, const char *fmt, ...) {
   fputs (": ", stderr);
   int * l = ACCESS (clauses.literals, id);
   while (*l)
-    printf ("%d ", *l++);
+    fprintf (stderr, "%d ", *l++);
   fputs ("0\n", stderr);
   exit (1);
 }
@@ -657,7 +657,6 @@ static void check_clause (int id, int *literals, int *antecedents) {
   for (int *a = antecedents, aid; (aid = *a); a++) {
     if (aid < 0)
       crr (id, "checking negative RAT antecedent '%d' not supported", aid);
-    assert (ACCESS (clauses.status, aid) > 0);
     int *als = ACCESS (clauses.literals, aid);
     dbgs (als, "resolving antecedent %d clause", aid);
     statistics.clauses.resolved++;
@@ -1042,13 +1041,18 @@ static void parse_proof () {
           if (!trimming || (checking && forward)) {
             assert (!proof.output);
             assert (!cnf.output);
+#if 0
             if (checking && forward)
+#endif
               assert (EMPTY (clauses.antecedents));
+#if 0
             else if (trimming) {
+	      cov
               int **a = &ACCESS (clauses.antecedents, other);
               free (*a);
               *a = 0;
             }
+#endif
             int **l = &ACCESS (clauses.literals, other);
             free (*l);
             *l = 0;
@@ -1366,6 +1370,31 @@ static void trim_proof () {
   double end = process_time (), duration = end - start;
   vrb ("finished trimming after %.2f seconds", end);
   msg ("trimming proof took %.2f seconds", duration);
+}
+
+static void check_proof () {
+
+  if (!checking || forward || !empty_clause)
+    return;
+
+  double start = process_time ();
+  vrb ("starting backward checking after %.2f seconds", start);
+
+  int id = first_clause_added_in_proof;
+  for (;;) {
+    int where = ACCESS (clauses.used, id);
+    if (where) {
+      int * l = ACCESS (clauses.literals, id);
+      int * a = ACCESS (clauses.antecedents, id);
+      check_clause (id, l, a);
+    }
+    if (id++ == empty_clause)
+      break;
+  }
+
+  double end = process_time (), duration = end - start;
+  vrb ("finished backward checking after %.2f seconds", end);
+  msg ("backward checking proof took %.2f seconds", duration);
 }
 
 static struct file *write_file (struct file *file) {
@@ -1800,6 +1829,7 @@ int main (int argc, char **argv) {
   parse_cnf ();
   parse_proof ();
   trim_proof ();
+  check_proof ();
   write_proof ();
   write_cnf ();
   int res = 0;
