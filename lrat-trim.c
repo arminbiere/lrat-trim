@@ -1758,7 +1758,7 @@ static void print_mode () {
         mode = "forward checking all clauses without trimming proof";
     } else {
       if (trimming)
-        mode = "backward checking used clauses after trimming proof";
+        mode = "backward checking trimmed clauses after trimming proof";
       else
         mode = "backward checking all clauses without trimming proof";
     }
