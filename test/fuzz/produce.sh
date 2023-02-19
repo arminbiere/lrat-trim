@@ -32,4 +32,4 @@ echo "reading CNF '$cnf'"
 echo "writing LRAT '$lrat'"
 
 msg "calling 'radical'"
-exec $radical --lrat --lratexternal --no-binary $cnf $lrat
+exec $radical --lrat --no-binary $cnf $lrat

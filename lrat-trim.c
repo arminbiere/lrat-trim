@@ -134,6 +134,16 @@ struct statistics {
       size_t added, deleted;
     } cnf, proof;
   } original, trimmed;
+  struct {
+    struct {
+      size_t total;
+      size_t empty;
+    } checked;
+    size_t resolved;
+  } clauses;
+  struct {
+    size_t assigned;
+  } literals;
 } statistics;
 
 // At-most three files set up during option parsing.
@@ -171,17 +181,9 @@ static int empty_clause;
 static int last_clause_added_in_cnf;
 static int first_clause_added_in_proof;
 
-static struct { struct char_map marked; } variables;
+static struct { struct char_map values; } variables;
 
-static struct {
-  int *begin, *end, *allocated;
-  size_t literals, clauses;
-} resolved;
-
-static struct {
-  size_t empty_clauses;
-  size_t clauses;
-} checked;
+static struct int_stack trail;
 
 static struct {
   struct char_map status;
@@ -201,9 +203,6 @@ static void msg (const char *, ...) __attribute__ ((format (printf, 1, 2)));
 static void vrb (const char *, ...) __attribute__ ((format (printf, 1, 2)));
 static void wrn (const char *, ...) __attribute__ ((format (printf, 1, 2)));
 
-static void crr (int, const char *, ...)
-    __attribute__ ((format (printf, 2, 3)));
-
 static void die (const char *fmt, ...) {
   fputs ("lrat-trim: error: ", stderr);
   va_list ap;
@@ -222,16 +221,6 @@ static void prr (const char *fmt, ...) {
   fprintf (stderr,
            "lrat-trim: parse error in '%s' %s line %zu: ", input.path,
            input.eof && input.last == '\n' ? "after" : "in", line);
-  va_list ap;
-  va_start (ap, fmt);
-  vfprintf (stderr, fmt, ap);
-  va_end (ap);
-  fputc ('\n', stderr);
-  exit (1);
-}
-
-static void crr (int id, const char *fmt, ...) {
-  fprintf (stderr, "lrat-trim: checking clause '%d' failed: ", id);
   va_list ap;
   va_start (ap, fmt);
   vfprintf (stderr, fmt, ap);
@@ -574,107 +563,124 @@ static double mega_bytes (void) {
 static double average (double a, double b) { return b ? a / b : 0; }
 static double percent (double a, double b) { return average (100 * a, b); }
 
-static inline void mark_literal (int lit) {
+static inline void assign_literal (int lit) {
   assert (lit);
   assert (lit != INT_MIN);
+  dbg ("assigning literal %d", lit);
   int idx = abs (lit);
-  signed char mark = lit < 0 ? -1 : 1;
-  signed char *m = &ACCESS (variables.marked, idx);
-  assert (!*m);
-  *m = mark;
+  signed char value = lit < 0 ? -1 : 1;
+  signed char *v = &ACCESS (variables.values, idx);
+  assert (!*v);
+  *v = value;
+  PUSH (trail, lit);
+  statistics.literals.assigned++;
 }
 
-static inline void unmark_literal (int lit) {
+static inline void unassign_literal (int lit) {
   assert (lit);
   assert (lit != INT_MIN);
+  dbg ("unassigning literal %d", lit);
   int idx = abs (lit);
-  signed char *m = &ACCESS (variables.marked, idx);
+  signed char *v = &ACCESS (variables.values, idx);
 #ifndef NDEBUG
-  signed char mark = lit < 0 ? -1 : 1;
-  assert (*m == mark);
+  signed char value = lit < 0 ? -1 : 1;
+  assert (*v == value);
 #endif
-  *m = 0;
+  *v = 0;
 }
 
-static inline signed char marked_literal (int lit) {
+static void backtrack () {
+  for (int *t = trail.begin; t != trail.end; t++)
+    unassign_literal (*t);
+  CLEAR (trail);
+}
+
+static inline signed char assigned_literal (int) __attribute ((always_inline));
+
+static inline signed char assigned_literal (int lit) {
   assert (lit);
   assert (lit != INT_MIN);
   int idx = abs (lit);
-  int res = ACCESS (variables.marked, idx);
+  int res = ACCESS (variables.values, idx);
   if (lit < 0)
     res = -res;
   return res;
 }
 
+static void crr (int, const char *, ...)
+    __attribute__ ((format (printf, 2, 3)));
+
+static void crr (int id, const char *fmt, ...) {
+  fputs ("lrat-trim: ", stderr);
+  va_list ap;
+  va_start (ap, fmt);
+  vfprintf (stderr, fmt, ap);
+  va_end (ap);
+  fprintf (stderr, " while checking clause '%d'", id);
+  if (track) {
+    struct addition *addition = &ACCESS (clauses.added, id);
+    fprintf (stderr, " at line '%zu' ", addition->line);
+    assert (proof.input);
+    assert (proof.input->path);
+    fprintf (stderr, "in '%s'", proof.input->path);
+  }
+  fputs (": ", stderr);
+  int * l = ACCESS (clauses.literals, id);
+  while (*l)
+    printf ("%d ", *l++);
+  fputs ("0\n", stderr);
+  exit (1);
+}
+
 static void check_clause (int id, int *literals, int *antecedents) {
-  assert (EMPTY (resolved));
-  checked.clauses++;
-  int * a = antecedents;
-  bool first = true;
-  while (*a)
-    a++;
-  while (a != antecedents) {
-    int aid = *--a;
+  assert (EMPTY (trail));
+  statistics.clauses.resolved++;
+  statistics.clauses.checked.total++;
+  if (!*literals)
+    statistics.clauses.checked.empty++;
+  for (int *l = literals, lit; (lit = *l); l++) {
+    signed char value = assigned_literal (lit);
+    if (value < 0) {
+      dbg ("skipping duplicated literal '%d' in clause '%d'", lit, id);
+      continue;
+    }
+    if (value > 0) {
+      dbg ("skipping tautological literal '%d' and '%d' "
+           "in clause '%d'",
+           -lit, lit, id);
+    CHECKED:
+      backtrack ();
+      return;
+    }
+    assign_literal (-lit);
+  }
+  for (int *a = antecedents, aid; (aid = *a); a++) {
     if (aid < 0)
       crr (id, "checking negative RAT antecedent '%d' not supported", aid);
     assert (ACCESS (clauses.status, aid) > 0);
-    int *als = ACCESS (clauses.literals, aid), pivot = 0;
+    int *als = ACCESS (clauses.literals, aid);
     dbgs (als, "resolving antecedent %d clause", aid);
-    for (int * l = als, lit; (lit = *l); l++) {
-      signed char mark = marked_literal (lit);
-      if (mark > 0)
+    statistics.clauses.resolved++;
+    int unit = 0;
+    for (int *l = als, lit; (lit = *l); l++) {
+      signed char value = assigned_literal (lit);
+      if (value < 0)
         continue;
-      if (!mark) {
-        mark_literal (lit);
-        PUSH (resolved, lit);
-	dbg ("resolved literal %d", lit);
-        resolved.literals++;
-      } else if (pivot)
-        crr (id, "antecedent '%d' clashes on '%d and '%d'", aid, pivot,
-             lit);
-      else
-        pivot = lit;
+      if (unit)
+        crr (id, "antecedent '%d' does not produce unit", aid);
+      unit = lit;
+      if (!value)
+        assign_literal (lit);
     }
-    if (first)
-      assert (!pivot), first = false;
-    else if (!pivot)
-      crr (id, "antecedent '%d' can not be resolved", aid);
-    else {
-      dbgs (als, "antecedent %d pivot %d resolved", aid, pivot);
-      unmark_literal (-pivot);
+    if (!unit) {
+      dbgs (als,
+            "conflicting antecedent '%d' thus checking "
+            " of clause '%d' succeeded",
+            aid, id);
+      goto CHECKED;
     }
-#ifdef LOGGING
-    if (logging ()) {
-      logging_prefix ("resolving antecedent clause %d yields resolvent", id);
-      for (int * r = resolved.begin; r != resolved.end; r++) {
-	int lit = *r;
-	signed char mark = marked_literal (lit);
-	assert (mark >= 0);
-	if (mark > 0)
-	  printf (" %d", lit);
-      }
-      logging_suffix ();
-    }
-#endif
-    resolved.clauses++;
   }
-  for (int *l = literals, lit; (lit = *l); l++) {
-    signed char mark = marked_literal (lit);
-    if (!mark)
-      crr (id, "literal '%d' missing in final resolvent", lit);
-    else if (mark < 0)
-      crr (id, "literal '%d' negated in final resolvent", lit);
-    unmark_literal (lit);
-  }
-  for (int *r = resolved.begin; r != resolved.end; r++) {
-    int lit = *r;
-    signed char mark = marked_literal (lit);
-    assert (mark >= 0);
-    if (mark)
-      crr (id, "remaining literal '%d'", lit);
-  }
-  CLEAR (resolved);
-  checked.empty_clauses += !*literals;
+  crr (id, "propagating antecedents does not yield conflict");
 }
 
 static inline bool is_original_clause (int id) {
@@ -795,7 +801,7 @@ static void parse_cnf () {
     prr ("expected new-line after 'p cnf %d %d'", header_variables,
          header_clauses);
   msg ("found 'p cnf %d %d' header", header_variables, header_clauses);
-  ADJUST (variables.marked, header_variables);
+  ADJUST (variables.values, header_variables);
   ADJUST (clauses.literals, header_clauses);
   ADJUST (clauses.status, header_clauses);
   int lit = 0, parsed_clauses = 0;
@@ -1036,13 +1042,13 @@ static void parse_proof () {
           if (!trimming || (checking && forward)) {
             assert (!proof.output);
             assert (!cnf.output);
-	    if (checking && forward)
-	      assert (EMPTY (clauses.antecedents));
-	    else {
-	      int **a = &ACCESS (clauses.antecedents, other);
-	      free (*a);
-	      *a = 0;
-	    }
+            if (checking && forward)
+              assert (EMPTY (clauses.antecedents));
+            else {
+              int **a = &ACCESS (clauses.antecedents, other);
+              free (*a);
+              *a = 0;
+            }
             int **l = &ACCESS (clauses.literals, other);
             free (*l);
             *l = 0;
@@ -1278,7 +1284,7 @@ static void parse_proof () {
   *proof.input = input;
 
   RELEASE (clauses.deleted);
-  RELEASE (variables.marked);
+  RELEASE (variables.values);
   RELEASE (clauses.added);
   RELEASE (clauses.status);
 
@@ -1530,7 +1536,7 @@ static void release () {
   RELEASE (clauses.links);
   RELEASE (clauses.map);
   RELEASE (clauses.used);
-  free (resolved.begin);
+  RELEASE (trail);
   release_ints_map (&clauses.literals);
   release_ints_map (&clauses.antecedents);
 #endif
@@ -1770,12 +1776,19 @@ static void print_mode () {
 
 static void print_statistics () {
   double t = process_time ();
-  msg ("checked %zu clauses %.0f per second", checked.clauses,
-       average (checked.clauses, t));
-  msg ("resolved %zu clauses %.2f per checked clause", resolved.clauses,
-       average (resolved.clauses, checked.clauses));
-  msg ("resolved %zu literals %.2f per resolved clause", resolved.literals,
-       average (resolved.literals, resolved.clauses));
+  if (checking) {
+    msg ("checked %zu clauses %.0f per second",
+         statistics.clauses.checked.total,
+         average (statistics.clauses.checked.total, t));
+    msg ("resolved %zu clauses %.2f per checked clause",
+         statistics.clauses.resolved,
+         average (statistics.clauses.resolved,
+                  statistics.clauses.checked.total));
+    msg ("assigned %zu literals %.2f per checked clause",
+         statistics.literals.assigned,
+         average (statistics.literals.assigned,
+                  statistics.clauses.checked.total));
+  }
   msg ("maximum memory usage of %.0f MB", mega_bytes ());
   msg ("total time of %.2f seconds", t);
 }
@@ -1791,7 +1804,7 @@ int main (int argc, char **argv) {
   write_proof ();
   write_cnf ();
   int res = 0;
-  if (checked.empty_clauses) {
+  if (statistics.clauses.checked.empty) {
     printf ("s VERIFIED\n");
     fflush (stdout);
     res = 20;

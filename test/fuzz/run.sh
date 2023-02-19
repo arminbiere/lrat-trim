@@ -6,8 +6,11 @@ radical=radical
 
 # End of hard-coded configuration.
 
+tmp="/tmp/lrat-trim-run-$$"
+
 die () {
   echo "lrat-trim/test/fuzz/run.sh: error: $*" 1>&2
+  rm -f $tmp*
   exit 1
 }
 
@@ -24,7 +27,6 @@ version="`radical --version 2>/dev/null`"
 
 echo "found 'radical'  version '$version'"
 
-tmp="/tmp/lrat-trim-run-$$"
 cnf=$tmp.cnf
 lrat=$tmp.lrat
 log1=$tmp.log1
@@ -38,7 +40,7 @@ msg "saving CNF as '$cnf'"
 cat $* > $cnf
 
 msg "calling 'radical'"
-$radical --lrat --lratexternal --no-binary $cnf $lrat > $log1
+$radical --lrat --no-binary $cnf $lrat > $log1
 radicalstatus=$?
 
 cat $log1
