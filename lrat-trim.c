@@ -599,7 +599,8 @@ static void backtrack () {
   CLEAR (trail);
 }
 
-static inline signed char assigned_literal (int) __attribute ((always_inline));
+static inline signed char assigned_literal (int)
+    __attribute ((always_inline));
 
 static inline signed char assigned_literal (int lit) {
   assert (lit);
@@ -629,7 +630,7 @@ static void crr (int id, const char *fmt, ...) {
     fprintf (stderr, "in '%s'", proof.input->path);
   }
   fputs (": ", stderr);
-  int * l = ACCESS (clauses.literals, id);
+  int *l = ACCESS (clauses.literals, id);
   while (*l)
     fprintf (stderr, "%d ", *l++);
   fputs ("0\n", stderr);
@@ -1048,7 +1049,7 @@ static void parse_proof () {
 #if 0
             if (checking && forward)
 #endif
-              assert (EMPTY (clauses.antecedents));
+            assert (EMPTY (clauses.antecedents));
 #if 0
             else if (trimming) {
 	      cov
@@ -1384,8 +1385,8 @@ static void check_proof () {
   for (;;) {
     int where = ACCESS (clauses.used, id);
     if (where) {
-      int * l = ACCESS (clauses.literals, id);
-      int * a = ACCESS (clauses.antecedents, id);
+      int *l = ACCESS (clauses.literals, id);
+      int *a = ACCESS (clauses.antecedents, id);
       dbgs (l, "checking clause %d literals", id);
       dbgs (a, "checking clause %d antecedents", id);
       check_clause (id, l, a);
