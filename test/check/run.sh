@@ -11,7 +11,7 @@ rm -f *.err* *.log* *.lrat1
 
 lrattrim=../../lrat-trim
 
-[ -f $lrattrim ] || die "could not find 'lrat-trim"
+[ -f $lrattrim ] || die "could not find 'lrat-trim'"
 
 run () {
   name=$1

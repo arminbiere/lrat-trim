@@ -11,7 +11,7 @@ rm -f *.err? *.log?
 
 lrattrim=../../lrat-trim
 
-[ -f $lrattrim ] || die "could not find 'lrat-trim"
+[ -f $lrattrim ] || die "could not find 'lrat-trim'"
 
 run () {
   name=$1
@@ -50,6 +50,7 @@ run () {
 
 run empty
 run blocked
+run nounit1
 
 runs=`grep '^run [a-z]' run.sh|wc -l`
 

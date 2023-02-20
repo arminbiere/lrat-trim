@@ -11,7 +11,7 @@ rm -f *.err? *.log?
 
 lrattrim=../../lrat-trim
 
-[ -f $lrattrim ] || die "could not find 'lrat-trim"
+[ -f $lrattrim ] || die "could not find 'lrat-trim'"
 
 runcnf () {
   name=$1

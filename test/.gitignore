@@ -1,2 +1,4 @@
-*.log
-*.err
+*.log*
+*.err*
+*.cnf[12]*
+*.lrat[12]*

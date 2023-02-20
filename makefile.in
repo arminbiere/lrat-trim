@@ -5,7 +5,7 @@ lrat-trim: lrat-trim.c makefile
 clean:
 	rm -f lrat-trim makefile
 	rm -f test/*/*.log* test/*/*.err* test/*/*.lrat[12]
-	rm -f lrat-trim.gcda lrat-trim.gcno lrat-trim.c.gcov
+	rm -f *.gcda *.gcno *.gcov
 coverage: test
 	gcov lrat-trim.c
 format:
@@ -16,4 +16,5 @@ test: lrat-trim
 	test/trim/run.sh
 	test/fail/run.sh
 	test/check/run.sh
+	test/usage/run.sh
 .PHONY: all clean coverage format test
