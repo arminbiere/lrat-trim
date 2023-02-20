@@ -35,9 +35,9 @@ run () {
   status=$?
   if [ $status = 0 ]
   then
-    echo "lrat-trim ${includecnf}test/regr/$lrat # trimming in memory succeeded"
+    echo "./lrat-trim ${includecnf}test/regr/$lrat # trimming in memory succeeded"
   else
-    echo "lrat-trim ${includecnf}test/regr/$lrat # trimming in memory failed"
+    echo "./lrat-trim ${includecnf}test/regr/$lrat # trimming in memory failed"
     exit 1
   fi
 
@@ -49,9 +49,9 @@ run () {
   status=$?
   if [ $status = 0 ]
   then
-    echo "lrat-trim ${includecnf}test/regr/$lrat test/regr/$lrat1 # trimming succeeded"
+    echo "./lrat-trim ${includecnf}test/regr/$lrat test/regr/$lrat1 # trimming succeeded"
   else
-    echo "lrat-trim ${includecnf}test/regr/$lrat test/regr/$lrat1 # trimming failed"
+    echo "./lrat-trim ${includecnf}test/regr/$lrat test/regr/$lrat1 # trimming failed"
     exit 1
   fi
 }

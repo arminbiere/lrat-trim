@@ -26,9 +26,9 @@ run () {
   status=$?
   if [ $status = 0 ]
   then
-    echo "lrat-trim test/trim/$lrat # trimming in memory succeeded"
+    echo "./lrat-trim test/trim/$lrat # trimming in memory succeeded"
   else
-    echo "lrat-trim test/trim/$lrat # trimming in memory failed"
+    echo "./lrat-trim test/trim/$lrat # trimming in memory failed"
     exit 1
   fi
 
@@ -40,9 +40,9 @@ run () {
   status=$?
   if [ $status = 0 ]
   then
-    echo "lrat-trim test/trim/$lrat test/trim/$lrat1 # trimming succeeded"
+    echo "./lrat-trim test/trim/$lrat test/trim/$lrat1 # trimming succeeded"
   else
-    echo "lrat-trim test/trim/$lrat test/trim/$lrat1 # trimming failed"
+    echo "./lrat-trim test/trim/$lrat test/trim/$lrat1 # trimming failed"
     exit 1
   fi
 
@@ -54,9 +54,9 @@ run () {
   status=$?
   if [ $status = 0 ]
   then
-    echo "lrat-trim test/trim/$lrat1 test/trim/$lrat2 # trimming succeeded"
+    echo "./lrat-trim test/trim/$lrat1 test/trim/$lrat2 # trimming succeeded"
   else
-    echo "lrat-trim test/trim/$lrat1 test/trim/$lrat2 # trimming failed"
+    echo "./lrat-trim test/trim/$lrat1 test/trim/$lrat2 # trimming failed"
     exit 1
   fi
 }

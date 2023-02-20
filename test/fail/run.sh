@@ -28,9 +28,9 @@ run () {
   status=$?
   if [ $status = 1 ]
   then
-    echo "lrat-trim test/fail/$cnf test/fail/$lrat # checking failed as expected"
+    echo "./lrat-trim test/fail/$cnf test/fail/$lrat # checking failed as expected"
   else
-    echo "lrat-trim test/fail/$cnf test/fail/$lrat # unexpected exit code $status"
+    echo "./lrat-trim test/fail/$cnf test/fail/$lrat # unexpected exit code $status"
     exit 1
   fi
 
@@ -41,9 +41,9 @@ run () {
   status=$?
   if [ $status = 1 ]
   then
-    echo "lrat-trim -t -v test/fail/$cnf test/fail/$lrat # checking failed as expected"
+    echo "./lrat-trim -t -v test/fail/$cnf test/fail/$lrat # checking failed as expected"
   else
-    echo "lrat-trim -t -v test/fail/$cnf test/fail/$lrat # unexpected exit code $status"
+    echo "./lrat-trim -t -v test/fail/$cnf test/fail/$lrat # unexpected exit code $status"
     exit 1
   fi
 }

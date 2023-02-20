@@ -25,9 +25,9 @@ runcnf () {
   status=$?
   if [ $status = 1 ]
   then
-    echo "lrat-trim test/parse/$cnf /dev/null # parsing failed as expected"
+    echo "./lrat-trim test/parse/$cnf /dev/null # parsing failed as expected"
   else
-    echo "lrat-trim test/parse/$cnf /dev/null # unexpected exit code $status"
+    echo "./lrat-trim test/parse/$cnf /dev/null # unexpected exit code $status"
     exit 1
   fi
 
@@ -38,9 +38,9 @@ runcnf () {
   status=$?
   if [ $status = 1 ]
   then
-    echo "lrat-trim -t -v test/parse/$cnf /dev/null # parsing failed as expected"
+    echo "./lrat-trim -t -v test/parse/$cnf /dev/null # parsing failed as expected"
   else
-    echo "lrat-trim -t -v test/parse/$cnf /dev/null # unexpected exit code $status"
+    echo "./lrat-trim -t -v test/parse/$cnf /dev/null # unexpected exit code $status"
     exit 1
   fi
 }
@@ -58,9 +58,9 @@ runlrat () {
   status=$?
   if [ $status = 1 ]
   then
-    echo "lrat-trim test/parse/$lrat # parsing failed as expected"
+    echo "./lrat-trim test/parse/$lrat # parsing failed as expected"
   else
-    echo "lrat-trim test/parse/$lrat # unexpected exit code $status"
+    echo "./lrat-trim test/parse/$lrat # unexpected exit code $status"
     exit 1
   fi
 
@@ -71,9 +71,9 @@ runlrat () {
   status=$?
   if [ $status = 1 ]
   then
-    echo "lrat-trim -t -v test/parse/$lrat # parsing failed as expected"
+    echo "./lrat-trim -t -v test/parse/$lrat # parsing failed as expected"
   else
-    echo "lrat-trim -t -v test/parse/$lrat # unexpected exit code $status"
+    echo "./lrat-trim -t -v test/parse/$lrat # unexpected exit code $status"
     exit 1
   fi
 }
