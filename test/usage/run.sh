@@ -25,7 +25,7 @@ run () {
   while [ $# -gt 0 ]
   do
     case $1 in
-      -*) pretty="$pretty $1"; cmd="$cmd $1";;
+      -*|/dev/null) pretty="$pretty $1"; cmd="$cmd $1";;
       *) pretty="$pretty test/usage/$1"; cmd="$cmd $1";;
     esac
     shift
@@ -53,5 +53,8 @@ run 0 options2 --help
 run 0 version1 -V
 run 0 version2 --version
 run 1 invalidoption --this-is-not-a-valid-option
+run 20 add8writeall -q add8.cnf add8.lrat add8.lrat1 add8.cnf1
+#run 20 add8writeallagain -v add8.cnf1 add8.lrat1 add8.lrat2 add8.cnf2
+run 20 false false.cnf /dev/null
 
 echo "passed $runs usage tests in 'test/usage/run.sh'"

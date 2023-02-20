@@ -477,7 +477,8 @@ static inline int read_char (void) {
 // code of the inlined 'read_char' and 'isdigit'.
 
 static int read_first_char (void) {
-  assert (input.file);
+  if (!input.file)
+    return EOF;
   int res = input.saved;
   if (res == EOF)
     res = read_char ();
@@ -889,6 +890,11 @@ static void parse_cnf () {
       CLEAR (parsed_literals);
       assert (parsed_clauses < SIZE (clauses.status));
       clauses.status.begin[parsed_clauses] = 1;
+      if (size_literals == 1 && !empty_clause) {
+        vrb ("found empty original clause %d", parsed_clauses);
+        statistics.clauses.checked.empty++;
+        empty_clause = parsed_clauses;
+      }
     }
     if (ch == 'c')
       goto SKIP_COMMENT_AFTER_HEADER;
@@ -1174,6 +1180,7 @@ static void parse_proof () {
       if (size_literals == 1) {
         if (!empty_clause) {
           vrb ("found empty clause %d", id);
+          statistics.clauses.checked.empty++;
           empty_clause = id;
         }
       }
@@ -1293,8 +1300,12 @@ static void parse_proof () {
   RELEASE (clauses.added);
   RELEASE (clauses.status);
 
-  if (!empty_clause)
-    wrn ("no empty clause added in input proof");
+  if (!empty_clause) {
+    if (cnf.input)
+      wrn ("no empty clause added in input CNF nor input proof");
+    else
+      wrn ("no empty clause added in input proof");
+  }
 
   vrb ("read %zu proof lines with %zu bytes (%.0f MB)", input.lines,
        input.bytes, input.bytes / (double)(1 << 20));
@@ -1376,6 +1387,10 @@ static void trim_proof () {
 static void check_proof () {
 
   if (!checking || forward || !empty_clause)
+    return;
+
+  if (empty_clause && (!first_clause_added_in_proof ||
+                       empty_clause < first_clause_added_in_proof))
     return;
 
   double start = process_time ();
@@ -1837,12 +1852,14 @@ int main (int argc, char **argv) {
   write_proof ();
   write_cnf ();
   int res = 0;
-  if (statistics.clauses.checked.empty) {
-    printf ("s VERIFIED\n");
-    fflush (stdout);
-    res = 20;
-  } else
-    msg ("no empty clause found and checked");
+  if (checking) {
+    if (statistics.clauses.checked.empty) {
+      printf ("s VERIFIED\n");
+      fflush (stdout);
+      res = 20;
+    } else
+      msg ("no empty clause found and checked");
+  }
   release ();
   print_statistics ();
   return res;
