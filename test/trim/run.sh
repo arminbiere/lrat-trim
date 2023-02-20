@@ -75,6 +75,11 @@ run add8
 run ph2
 run ph3
 run ph4
+run add16
+run add32
+run add64
+run add128
+run prime65537
 
 runs=`grep '^run [a-z]' run.sh|wc -l`
 logs=`ls *.log|wc -l`

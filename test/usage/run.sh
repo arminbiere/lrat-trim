@@ -52,5 +52,6 @@ run 0 options1 -h
 run 0 options2 --help
 run 0 version1 -V
 run 0 version2 --version
+run 1 invalidoption --this-is-not-a-valid-option
 
 echo "passed $runs usage tests in 'test/usage/run.sh'"

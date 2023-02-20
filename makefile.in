@@ -4,7 +4,7 @@ lrat-trim: lrat-trim.c makefile
 	$(COMPILE) -o $@ $<
 clean:
 	rm -f lrat-trim makefile
-	rm -f test/*/*.log* test/*/*.err* test/*/*.lrat[12]
+	rm -f test/*/*.log* test/*/*.err* test/*/*.lrat[12] test/*/*.cnf[12]
 	rm -f *.gcda *.gcno *.gcov
 coverage: test
 	gcov lrat-trim.c
