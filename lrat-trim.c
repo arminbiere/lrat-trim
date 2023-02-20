@@ -46,7 +46,7 @@ static const char * usage =
 "the SAT competition.  In this case 's VERIFIED' is printed too.\n"
 "\n"
 "The status of clauses, i.e., whether they are added or have been deleted\n"
-"is always tracked and checked precisely.  It is considered and error if\n"
+"is always tracked and checked precisely.  It is considered an error if\n"
 "a clause is used in a proof line which was deleted before.  In order to\n"
 "determine in which proof line exactly the offending clause was deleted\n"
 "the user can additionally specify '--track' to track this information,\n"
