@@ -276,6 +276,36 @@ static void wrn (const char *fmt, ...) {
   fflush (stdout);
 }
 
+#define size_pretty_buffer 256
+#define num_pretty_buffers 2
+
+static char pretty_buffer[num_pretty_buffers][size_pretty_buffer];
+static int current_pretty_buffer;
+
+static char *next_pretty_buffer () {
+  char *buffer = pretty_buffer[current_pretty_buffer++];
+  if (current_pretty_buffer == num_pretty_buffers)
+    current_pretty_buffer = 0;
+  return buffer;
+}
+
+static const char *pretty_bytes (size_t bytes) {
+  char *buffer = next_pretty_buffer ();
+  double kb = bytes / (double)(1u << 10);
+  double mb = bytes / (double)(1u << 20);
+  double gb = bytes / (double)(1u << 30);
+  if (kb < 1)
+    snprintf (buffer, size_pretty_buffer, "%zu bytes", bytes);
+  else if (mb < 1)
+    snprintf (buffer, size_pretty_buffer, "%zu bytes %.1f KB", bytes, kb);
+  else if (gb < 1)
+    snprintf (buffer, size_pretty_buffer, "%zu bytes %.1f MB", bytes, mb);
+  else
+    snprintf (buffer, size_pretty_buffer, "%zu bytes %.1f GB", bytes, gb);
+  assert (strlen (buffer) < size_pretty_buffer);
+  return buffer;
+}
+
 #define ZERO(E) \
   do { \
     memset (&(E), 0, sizeof (E)); \
@@ -935,8 +965,8 @@ static void parse_cnf () {
     fclose (input.file);
   *cnf.input = input;
 
-  vrb ("read %zu CNF lines with %zu bytes (%.0f MB)", input.lines,
-       input.bytes, input.bytes / (double)(1 << 20));
+  vrb ("read %zu CNF lines with %s", input.lines,
+       pretty_bytes (input.bytes));
 
   last_clause_added_in_cnf = parsed_clauses;
   msg ("parsed CNF with %zu added clauses", statistics.original.cnf.added);
@@ -1088,11 +1118,11 @@ static void parse_proof () {
             assert (!proof.output);
             assert (!cnf.output);
             assert (EMPTY (clauses.antecedents));
-	    if (!relax || other < SIZE (clauses.literals)) {
-	      int **l = &ACCESS (clauses.literals, other);
-	      free (*l);
-	      *l = 0;
-	    }
+            if (!relax || other < SIZE (clauses.literals)) {
+              int **l = &ACCESS (clauses.literals, other);
+              free (*l);
+              *l = 0;
+            }
           }
         } else if (ch != '\n')
           prr ("expected new-line after '0' at end of deletion %d", id);
@@ -1333,15 +1363,16 @@ static void parse_proof () {
       wrn ("no empty clause added in input proof");
   }
 
-  vrb ("read %zu proof lines with %zu bytes (%.0f MB)", input.lines,
-       input.bytes, input.bytes / (double)(1 << 20));
+  vrb ("read %zu proof lines with %s", input.lines,
+       pretty_bytes (input.bytes));
 
   msg ("parsed original proof with %zu added and %zu deleted clauses",
        statistics.original.proof.added, statistics.original.proof.deleted);
 
   if (relax) {
     if (ignored_deletions)
-      vrb ("ignored %zu deleted clauses due to '--relax'", ignored_deletions);
+      vrb ("ignored %zu deleted clauses due to '--relax'",
+           ignored_deletions);
     else
       vrb ("no clause deletion had to be ignored due to '--relax'");
   } else
@@ -1465,20 +1496,6 @@ static struct file *write_file (struct file *file) {
   return file;
 }
 
-static void close_output_proof () {
-  assert (proof.output);
-  flush_buffer ();
-  if (output.close)
-    fclose (output.file);
-  *proof.output = output;
-  vrb ("wrote %zu lines with %zu bytes (%.0f MB)", output.lines,
-       output.bytes, output.bytes / (double)(1 << 20));
-  msg ("trimmed %zu bytes (%.0f MB) to %zu bytes (%.0f MB) %.0f%%",
-       proof.input->bytes, proof.input->bytes / (double)(1 << 20),
-       proof.output->bytes, proof.output->bytes / (double)(1 << 20),
-       percent (proof.output->bytes, proof.input->bytes));
-}
-
 static int map_id (int id) {
   assert (id != INT_MIN);
   int abs_id = abs (id);
@@ -1583,8 +1600,10 @@ static void write_empty_proof () {
 static void write_proof () {
   if (!proof.output)
     return;
+
   double start = process_time ();
   vrb ("starting writing proof after %.2f seconds", start);
+
   buffer.pos = 0;
   output = *write_file (proof.output);
   msg ("writing proof to '%s'", output.path);
@@ -1592,7 +1611,17 @@ static void write_proof () {
     write_non_empty_proof ();
   else
     write_empty_proof ();
-  close_output_proof ();
+
+  assert (proof.output);
+  flush_buffer ();
+  if (output.close)
+    fclose (output.file);
+  *proof.output = output;
+
+  msg ("trimmed %s to %s %.0f%%", pretty_bytes (proof.input->bytes),
+       pretty_bytes (proof.output->bytes),
+       percent (proof.output->bytes, proof.input->bytes));
+
   double end = process_time (), duration = end - start;
   vrb ("finished writing proof after %.2f seconds", end);
   msg ("writing proof took %.2f seconds", duration);
@@ -1640,6 +1669,13 @@ static void write_cnf () {
   if (output.close)
     fclose (output.file);
   *cnf.output = output;
+
+  vrb ("wrote %zu proof lines of %s", output.lines,
+       pretty_bytes (output.bytes));
+  msg ("trimmed %s to %s %.0f%%",
+       pretty_bytes (cnf.input->bytes),
+       pretty_bytes (cnf.output->bytes),
+       percent (cnf.output->bytes, cnf.input->bytes));
 
   double end = process_time (), duration = end - start;
   vrb ("finished writing CNF after %.2f seconds", end);
