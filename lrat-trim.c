@@ -479,7 +479,7 @@ static inline int read_buffer (void) {
 
 static inline void count_read (int ch) {
   if (ch == '\n')
-    input.lines += 1;
+    input.lines++;
   if (ch != EOF) {
     input.bytes++;
     input.last = ch;
@@ -780,7 +780,7 @@ static const char *exceeds_int_max (int n, int ch) {
   static char buffer[32];
   const size_t size = sizeof buffer - 5;
   assert (ISDIGIT (ch));
-  sprintf (buffer, "%d", n);
+  snprintf (buffer, sizeof buffer, "%d", n);
   size_t i = strlen (buffer);
   do {
     assert (i < sizeof buffer);
