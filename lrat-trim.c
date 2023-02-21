@@ -495,10 +495,13 @@ static int read_first_char (void) {
 }
 
 static void flush_buffer () {
-  assert (output.file);
   size_t bytes = buffer.pos;
   if (!bytes)
     return;
+  if (!output.file) {
+    buffer.pos = 0;
+    return;
+  }
   size_t written = fwrite (buffer.chars, 1, bytes, output.file);
   if (written != bytes) {
     if (output.path)
@@ -1085,9 +1088,11 @@ static void parse_proof () {
             assert (!proof.output);
             assert (!cnf.output);
             assert (EMPTY (clauses.antecedents));
-            int **l = &ACCESS (clauses.literals, other);
-            free (*l);
-            *l = 0;
+	    if (!relax || other < SIZE (clauses.literals)) {
+	      int **l = &ACCESS (clauses.literals, other);
+	      free (*l);
+	      *l = 0;
+	    }
           }
         } else if (ch != '\n')
           prr ("expected new-line after '0' at end of deletion %d", id);
@@ -1490,7 +1495,6 @@ static int map_id (int id) {
 static void write_non_empty_proof () {
 
   assert (output.path);
-  assert (output.file);
 
   assert (empty_clause > 0);
   ADJUST (clauses.links, empty_clause);
@@ -1618,7 +1622,7 @@ static void write_cnf () {
     write_char ('\n');
     int id = 0;
     while (id++ != last_clause_added_in_cnf)
-      if (ACCESS (clauses.used, id))
+      if (id <= empty_clause && ACCESS (clauses.used, id))
         write_clause (id), count++;
     assert (count == statistics.trimmed.cnf.added);
   } else {
