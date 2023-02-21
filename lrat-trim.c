@@ -22,6 +22,8 @@ static const char * usage =
 "  --no-check      disable checking clauses (default without CNF)\n"
 "  --no-trim       disable trimming (assume all clauses used)\n"
 "\n"
+"  --relax         ignore deletion of clauses which were never added\n"
+"\n"
 "and '<file> ...' is a non-empty list of at most four DIMACS and LRAT files:\n"
 "\n"
 "  <input-proof>\n"
@@ -180,12 +182,16 @@ static int verbosity;
 
 static bool checking;
 static bool trimming;
+static bool relax;
 
 static int empty_clause;
 static int last_clause_added_in_cnf;
 static int first_clause_added_in_proof;
 
-static struct { struct char_map values; } variables;
+static struct {
+  struct char_map values;
+  int original;
+} variables;
 
 static struct int_stack trail;
 
@@ -195,9 +201,10 @@ static struct {
   struct ints_map antecedents;
   struct deletion_map deleted;
   struct addition_map added;
-  struct int_map used;
+  struct int_map referenced;
   struct int_map heads;
   struct int_map links;
+  struct int_map used;
   struct int_map map;
 } clauses;
 
@@ -540,6 +547,22 @@ static inline void write_int (int i) {
     write_char ('0');
 }
 
+static char size_t_buffer[32];
+
+static inline void write_size_t (size_t i) {
+  if (i) {
+    char *p = size_t_buffer + sizeof size_t_buffer - 1;
+    assert (!*p);
+    size_t tmp = i;
+    while (tmp) {
+      *--p = '0' + (tmp % 10);
+      tmp /= 10;
+    }
+    write_str (p);
+  } else
+    write_char ('0');
+}
+
 #include <sys/resource.h>
 #include <sys/time.h>
 #include <unistd.h>
@@ -802,6 +825,8 @@ static void parse_cnf () {
     }
     header_clauses += digit;
   }
+  while (ch == ' ')
+    ch = read_char ();
   if (ch != '\n')
     prr ("expected new-line after 'p cnf %d %d'", header_variables,
          header_clauses);
@@ -917,6 +942,8 @@ static void parse_cnf () {
   vrb ("finished parsing CNF after %.2f seconds", end);
   msg ("parsing original CNF took %.2f seconds and needed %.0f MB memory",
        duration, mega_bytes ());
+
+  variables.original = header_variables;
 }
 
 static void parse_proof () {
@@ -932,6 +959,7 @@ static void parse_proof () {
   struct int_stack parsed_antecedents;
   ZERO (parsed_literals);
   ZERO (parsed_antecedents);
+  size_t ignored_deletions = 0;
   size_t line = 0;
   bool first = true;
   while (ch != EOF) {
@@ -1011,11 +1039,15 @@ static void parse_proof () {
           signed char *status_ptr = &ACCESS (clauses.status, other);
           signed char status = *status_ptr;
           *status_ptr = -1;
-          if (!status && first_clause_added_in_proof) {
-            assert (first_clause_added_in_proof <= other);
-            prr ("deleted clause '%d' in deletion %d "
-                 "is neither an original clause nor has been added",
-                 other, id);
+          if (!status &&
+              (last_clause_added_in_cnf || first_clause_added_in_proof)) {
+            if (relax)
+              ignored_deletions++;
+            else
+              prr ("deleted clause '%d' in deletion %d "
+                   "is neither an original clause nor has been added "
+                   "(use '--relax' to ignore such deletions) ",
+                   other, id);
           }
           if (track) {
             ADJUST (clauses.deleted, other);
@@ -1052,18 +1084,7 @@ static void parse_proof () {
           if (!trimming || (checking && forward)) {
             assert (!proof.output);
             assert (!cnf.output);
-#if 0
-            if (checking && forward)
-#endif
             assert (EMPTY (clauses.antecedents));
-#if 0
-            else if (trimming) {
-	      cov
-              int **a = &ACCESS (clauses.antecedents, other);
-              free (*a);
-              *a = 0;
-            }
-#endif
             int **l = &ACCESS (clauses.literals, other);
             free (*l);
             *l = 0;
@@ -1313,6 +1334,14 @@ static void parse_proof () {
   msg ("parsed original proof with %zu added and %zu deleted clauses",
        statistics.original.proof.added, statistics.original.proof.deleted);
 
+  if (relax) {
+    if (ignored_deletions)
+      vrb ("ignored %zu deleted clauses due to '--relax'", ignored_deletions);
+    else
+      vrb ("no clause deletion had to be ignored due to '--relax'");
+  } else
+    assert (!ignored_deletions);
+
   double end = process_time (), duration = end - start;
   vrb ("finished parsing proof after %.2f seconds", end);
   msg ("parsing original proof took %.2f seconds and needed %.0f MB memory",
@@ -1482,7 +1511,6 @@ static void write_non_empty_proof () {
       write_space ();
       write_int (id);
       statistics.trimmed.cnf.deleted++;
-      statistics.trimmed.cnf.added++;
     }
   }
 
@@ -1566,15 +1594,52 @@ static void write_proof () {
   msg ("writing proof took %.2f seconds", duration);
 }
 
+static void write_clause (int id) {
+  int *l = ACCESS (clauses.literals, id);
+  for (int *p = l, lit; (lit = *p); p++)
+    write_int (*p), write_space ();
+  write_str ("0\n");
+}
+
 static void write_cnf () {
   if (!cnf.output)
     return;
-  output = *cnf.output;
-  wrn ("writing the clausal core as CNF is not implemented yet");
-  wrn ("(only trimming and writing the input proof)");
+  double start = process_time ();
+  vrb ("starting writing CNF after %.2f seconds", start);
+  buffer.pos = 0;
+  output = *write_file (cnf.output);
+  msg ("writing CNF to '%s'", output.path);
+  write_str ("p cnf ");
+  write_int (variables.original);
+  write_space ();
+  size_t count = 0;
+  if (trimming) {
+    write_size_t (statistics.trimmed.cnf.added);
+    write_char ('\n');
+    int id = 0;
+    while (id++ != last_clause_added_in_cnf)
+      if (ACCESS (clauses.used, id))
+        write_clause (id), count++;
+    assert (count == statistics.trimmed.cnf.added);
+  } else {
+    write_size_t (statistics.original.cnf.added);
+    write_char ('\n');
+    int id = 0;
+    while (id++ != last_clause_added_in_cnf)
+      write_clause (id), count++;
+    assert (count == statistics.original.cnf.added);
+  }
+
+  msg ("wrote %zu clauses to CNF", count);
+
+  flush_buffer ();
   if (output.close)
     fclose (output.file);
   *cnf.output = output;
+
+  double end = process_time (), duration = end - start;
+  vrb ("finished writing CNF after %.2f seconds", end);
+  msg ("writing to CNF took %.2f seconds", duration);
 }
 
 static void release () {
@@ -1627,6 +1692,8 @@ static void options (int argc, char **argv) {
       nocheck = arg;
     else if (!strcmp (arg, "--no-trim"))
       notrim = arg;
+    else if (!strcmp (arg, "--relax"))
+      relax = true;
     else if (!strcmp (arg, "-V") || !strcmp (arg, "--version"))
       fputs (version, stdout), fputc ('\n', stdout), exit (0);
     else if (arg[0] == '-' && arg[1])
@@ -1685,6 +1752,8 @@ static bool has_suffix (const char *str, const char *suffix) {
 static bool looks_like_a_dimacs_file (const char *path) {
   assert (path);
   if (!strcmp (path, "-"))
+    return false;
+  if (!strcmp (path, "/dev/null"))
     return false;
   if (has_suffix (path, ".cnf"))
     return true;
@@ -1748,7 +1817,8 @@ static void open_input_files () {
       proof.output = &files[1];
     }
   } else {
-    assert (size_files < 4);
+    assert (2 < size_files);
+    assert (size_files < 5);
     cnf.input = read_file (&files[0]);
     proof.input = read_file (&files[1]);
     proof.output = &files[2];
@@ -1761,6 +1831,17 @@ static void open_input_files () {
     wrn ("using '%s' without CNF does not make sense", nocheck);
   if (!cnf.input && forward)
     wrn ("using '%s' without CNF does not make sense", forward);
+  if (proof.output && looks_like_a_dimacs_file (proof.output->path)) {
+    if (force)
+      wrn ("forced to write third file '%s' with trimmed proof "
+           "even though it looks like a CNF in DIMACS format",
+           files[2].path);
+    else
+      die ("will not write third file '%s' with trimmed proof "
+           "as it looks like a CNF in DIMACS format (use '--force' to "
+           "overwrite nevertheless)",
+           files[2].path);
+  }
 
   checking = !nocheck && cnf.input;
   trimming = !notrim && (!forward || proof.output || cnf.output);
