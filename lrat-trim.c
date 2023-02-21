@@ -1087,7 +1087,7 @@ static void parse_proof () {
             struct deletion *other_deletion =
                 &ACCESS (clauses.deleted, other);
             if (!status && first_clause_added_in_proof) {
-	      assert (relax);
+              assert (relax);
             } else if (status < 0) {
               assert (other_deletion->id);
               assert (other_deletion->line);
@@ -1111,7 +1111,14 @@ static void parse_proof () {
             statistics.original.cnf.deleted++;
           else
             statistics.original.proof.deleted++;
-          if (!trimming || (checking && forward)) {
+          bool delete_literals_eagerly;
+
+          if (checking)
+            delete_literals_eagerly = forward;
+          else
+            delete_literals_eagerly = !trimming;
+
+          if (delete_literals_eagerly) {
             assert (!proof.output);
             assert (!cnf.output);
             assert (EMPTY (clauses.antecedents));
@@ -1325,7 +1332,7 @@ static void parse_proof () {
       if (checking && forward) {
         check_clause (id, l, parsed_antecedents.begin);
         dbg ("forward checked clause %d", id);
-      } else if (trimming) {
+      } else if (trimming || checking) {
         size_t bytes_antecedents = size_antecedents * sizeof (int);
         int *a = malloc (bytes_antecedents);
         if (!a) {
@@ -1460,7 +1467,7 @@ static void check_proof () {
 
   int id = first_clause_added_in_proof;
   for (;;) {
-    int where = ACCESS (clauses.used, id);
+    int where = trimming ? ACCESS (clauses.used, id) : -1;
     if (where) {
       int *l = ACCESS (clauses.literals, id);
       int *a = ACCESS (clauses.antecedents, id);
@@ -1639,27 +1646,19 @@ static void write_cnf () {
   buffer.pos = 0;
   output = *write_file (cnf.output);
   msg ("writing CNF to '%s'", output.path);
+
   write_str ("p cnf ");
   write_int (variables.original);
   write_space ();
+  assert (trimming);
   size_t count = 0;
-  if (trimming) {
-    write_size_t (statistics.trimmed.cnf.added);
-    write_char ('\n');
-    int id = 0;
-    while (id++ != last_clause_added_in_cnf)
-      if (id <= empty_clause && ACCESS (clauses.used, id))
-        write_clause (id), count++;
-    assert (count == statistics.trimmed.cnf.added);
-  } else {
-    write_size_t (statistics.original.cnf.added);
-    write_char ('\n');
-    int id = 0;
-    while (id++ != last_clause_added_in_cnf)
+  write_size_t (statistics.trimmed.cnf.added);
+  write_char ('\n');
+  int id = 0;
+  while (id++ != last_clause_added_in_cnf)
+    if (id <= empty_clause && ACCESS (clauses.used, id))
       write_clause (id), count++;
-    assert (count == statistics.original.cnf.added);
-  }
-
+  assert (count == statistics.trimmed.cnf.added);
   msg ("wrote %zu clauses to CNF", count);
 
   flush_buffer ();
@@ -1745,7 +1744,7 @@ static void options (int argc, char **argv) {
     die ("no input file given (try '-h')");
 
   if (size_files > 2 && notrim)
-    die ("can not write to '%s' with '%s", files[2].path, notrim);
+    die ("can not write to '%s' with '%s'", files[2].path, notrim);
 
   for (size_t i = 0; i + 1 != size_files; i++)
     if (strcmp (files[i].path, "-") && strcmp (files[i].path, "/dev/null"))

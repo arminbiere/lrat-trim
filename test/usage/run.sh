@@ -72,5 +72,11 @@ run 20 add4null2 add8.cnf add8.lrat add8.lrat2 /dev/null
 run 20 add4null2 add8.cnf add8.lrat add8.lrat2 add8.cnf2
 run 0 empty empty.cnf /dev/null -q
 run 0 cnfws cnfws.cnf /dev/null
+run 1 writenotrim empty.cnf /dev/null /dev/null --no-trim
+run 0 writenotrim empty.cnf /dev/null /dev/null --no-check
+run 20 falsenotrim false.cnf /dev/null --no-trim
+run 20 add8notrimbw add8.cnf add8.lrat --no-trim
+run 20 add8notrimfw add8.cnf add8.lrat --no-trim -S
+run 0 add4nocheck add4.cnf add4.lrat add4.lrat2 add4.cnf2 --no-check
 
 echo "passed $runs usage tests in 'test/usage/run.sh'"
