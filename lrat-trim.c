@@ -479,7 +479,7 @@ static inline int read_buffer (void) {
 
 static inline void count_read (int ch) {
   if (ch == '\n')
-    input.lines++;
+    input.lines += 1;
   if (ch != EOF) {
     input.bytes++;
     input.last = ch;
@@ -1079,7 +1079,7 @@ static void parse_proof () {
             else
               prr ("deleted clause '%d' in deletion %d "
                    "is neither an original clause nor has been added "
-                   "(use '--relax' to ignore such deletions) ",
+                   "(use '--relax' to ignore such deletions)",
                    other, id);
           }
           if (track) {
@@ -1087,10 +1087,7 @@ static void parse_proof () {
             struct deletion *other_deletion =
                 &ACCESS (clauses.deleted, other);
             if (!status && first_clause_added_in_proof) {
-              assert (first_clause_added_in_proof <= other);
-              prr ("deleted clause '%d' in deletion %d "
-                   "is neither an original clause nor has been added",
-                   other, id);
+	      assert (relax);
             } else if (status < 0) {
               assert (other_deletion->id);
               assert (other_deletion->line);
@@ -1672,8 +1669,7 @@ static void write_cnf () {
 
   vrb ("wrote %zu proof lines of %s", output.lines,
        pretty_bytes (output.bytes));
-  msg ("trimmed %s to %s %.0f%%",
-       pretty_bytes (cnf.input->bytes),
+  msg ("trimmed %s to %s %.0f%%", pretty_bytes (cnf.input->bytes),
        pretty_bytes (cnf.output->bytes),
        percent (cnf.output->bytes, cnf.input->bytes));
 
