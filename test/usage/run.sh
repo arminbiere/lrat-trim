@@ -54,6 +54,7 @@ run 0 options2 --help
 run 0 version1 -V
 run 0 version2 --version
 run 1 invalidoption --this-is-not-a-valid-option
+run 1 invalidinput this-is-no-a-file
 run 1 toomanyfiles a b c d e
 run 1 noinputfile
 run 1 identical1 a a
@@ -86,6 +87,7 @@ run 0 empty2 empty.cnf /dev/null /dev/null /dev/null
 run 0 empty3 empty.cnf /dev/null - /dev/null
 run 0 empty4 empty.cnf /dev/null /dev/null -
 run 1 canotwrite empty.cnf /dev/null non/writable/path
+run 1 proofoutfw empty.cnf /dev/null /dev/null -S
 run 0 cnfws cnfws.cnf /dev/null
 run 1 writenotrim1 empty.cnf /dev/null /dev/null --no-trim
 run 0 writenotrim2 empty.cnf /dev/null /dev/null --no-check
@@ -111,7 +113,9 @@ run 20 add4trim2 add4.cnf add4.lrat add4trim2.cnf --force
 run 0 lratonlyforce1 /dev/null --force
 run 0 lratonlyforce2 /dev/null --no-check
 run 0 lratonlyforce3 /dev/null --forward
-rm -f add4trim[12].cnf
+run 1 twodashes1 - - /dev/null
+run 1 twodashes2 /dev/null /dev/null - -
+run 0 stdin - </dev/null
 
 $lrattrim -l -h >/dev/null 2>/dev/null && \
 run 20 add4log add4.cnf add4.lrat -l

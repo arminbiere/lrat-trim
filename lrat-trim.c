@@ -594,12 +594,15 @@ static void flush_buffer () {
     return;
   }
   size_t written = fwrite (buffer.chars, 1, bytes, output.file);
-  if (written != bytes) {
-    if (output.path)
-      die ("flushing %zu bytes of write buffer to '%s' failed", bytes,
-           output.path);
-    else
-      die ("flushing %zu bytes of write buffer failed", bytes);
+  bool failed = (written != bytes);
+#ifdef COVERAGE
+  if (getenv ("LRAT_TRIM_FAKE_FRWRITE_FAILURE"))
+    failed = true;
+#endif
+  if (failed) {
+    assert (output.path);
+    die ("flushing %zu bytes of write-buffer to '%s' failed", bytes,
+         output.path);
   }
   buffer.pos = 0;
 }
@@ -664,8 +667,7 @@ static inline void write_size_t (size_t i) {
 static double process_time () {
   struct rusage u;
   double res;
-  if (getrusage (RUSAGE_SELF, &u))
-    return 0;
+  (void)getrusage (RUSAGE_SELF, &u);
   res = u.ru_utime.tv_sec + 1e-6 * u.ru_utime.tv_usec;
   res += u.ru_stime.tv_sec + 1e-6 * u.ru_stime.tv_usec;
   return res;
@@ -673,8 +675,7 @@ static double process_time () {
 
 static size_t maximum_resident_set_size (void) {
   struct rusage u;
-  if (getrusage (RUSAGE_SELF, &u))
-    return 0;
+  (void)getrusage (RUSAGE_SELF, &u);
   return ((size_t)u.ru_maxrss) << 10;
 }
 
@@ -1217,16 +1218,19 @@ static void parse_proof () {
           if (checking)
             delete_literals_eagerly = forward;
           else
-            delete_literals_eagerly = !trimming; // TODO why not false?
+            delete_literals_eagerly = !trimming;
 
           if (delete_literals_eagerly) {
+
             assert (!proof.output);
             assert (!cnf.output);
+
             assert (EMPTY (clauses.antecedents));
 
-            // TODO do not get this either ...
+            // TODO the logic here needs to documentation!!!!
 
             if (!relax || other < SIZE (clauses.literals)) {
+
               int **l = &ACCESS (clauses.literals, other);
               free (*l);
               *l = 0;
@@ -1973,6 +1977,9 @@ static void open_input_files () {
     wrn ("using '%s' without CNF does not make sense", nocheck);
   if (!cnf.input && forward)
     wrn ("using '%s' without CNF does not make sense", forward);
+  if (proof.output && forward)
+    die ("can not write proof to '%s' with '%s'", proof.output->path,
+         forward);
   if (proof.output && looks_like_a_dimacs_file (proof.output->path)) {
     if (force)
       wrn ("forced to write third file '%s' with trimmed proof "
@@ -1985,8 +1992,21 @@ static void open_input_files () {
            files[2].path);
   }
 
-  checking = !nocheck && cnf.input;
-  trimming = !notrim && (!forward || proof.output || cnf.output);
+  // No CNF output without proof output: this is a restriction due to the
+  // way we specify files but would also make the internal logic of running
+  // the various functions in different mode pretty complex.
+  //
+  assert (!cnf.output || proof.output);
+
+  // Then we also enforce (above) that you can not do forward checking and
+  // at the same time produce a proof.  With forward checking we want to
+  // check on-the-fly and also at the same delete antecedent lists and
+  // clauses on the fly too. This restriction (*) simplifies the logic.
+  //
+  assert (!proof.output || !forward);
+
+  checking = !nocheck && cnf.input; // No checking without CNF for sure.
+  trimming = !notrim && !forward;   // With the above restriction (*).
 }
 
 static void print_banner () {
@@ -2009,10 +2029,10 @@ static void print_mode () {
         mode = "reading CNF and LRAT files and writing them too";
       else
         mode = "reading CNF and LRAT files and writing LRAT file";
-    } else if (cnf.output)
-      mode = "reading CNF and LRAT files and writing CNF file";
-    else
+    } else {
+      assert (!cnf.output);
       mode = "reading CNF and LRAT files";
+    }
   } else {
     if (proof.output)
       mode = "reading and writing LRAT files";
@@ -2023,16 +2043,12 @@ static void print_mode () {
 
   if (checking) {
     if (forward) {
-      if (trimming)
-        mode = "forward checking all clauses followed by trimming proof";
-      else
-        mode = "forward checking all clauses without trimming proof";
-    } else {
-      if (trimming)
-        mode = "backward checking trimmed clauses after trimming proof";
-      else
-        mode = "backward checking all clauses without trimming proof";
-    }
+      assert (!trimming);
+      mode = "forward checking all clauses without trimming proof";
+    } else if (trimming)
+      mode = "backward checking trimmed clauses after trimming proof";
+    else
+      mode = "backward checking all clauses without trimming proof";
   } else {
     if (trimming)
       mode = "trimming proof without checking clauses";
