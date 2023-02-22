@@ -81,6 +81,8 @@ run add64
 run add128
 run prime65537
 
+run rat1
+
 runs=`grep '^run [a-z]' run.sh|wc -l`
 logs=`ls *.log|wc -l`
 log1s=`ls *.log1|wc -l`

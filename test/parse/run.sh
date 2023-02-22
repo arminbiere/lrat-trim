@@ -141,6 +141,9 @@ runlrat idtoobig1
 runlrat idtoobig2
 runlrat nodigitatid
 runlrat zeroneid
+runlrat antenonexist
+runlrat antedel
+runlrat antenonl
 
 lratruns=`grep '^runlrat [a-z]' run.sh|wc -l`
 cnfruns=`grep '^runcnf [a-z]' run.sh|wc -l`

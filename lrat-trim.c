@@ -816,8 +816,9 @@ static void check_clause (int id, int *literals, int *antecedents) {
 }
 
 static inline bool is_original_clause (int id) {
-  return !id || !first_clause_added_in_proof ||
-         id < first_clause_added_in_proof;
+  int abs_id = abs (id);
+  return !abs_id || !first_clause_added_in_proof ||
+         abs_id < first_clause_added_in_proof;
 }
 
 // Apparently the hot-spot of the parser is checking the loop condition for
@@ -1396,12 +1397,12 @@ static void parse_proof () {
           if (other >= id)
             prr ("antecedent '%d' in clause %d exceeds clause",
                  signed_other, id);
-          signed char s = ACCESS (clauses.status, other);
-          if (!s)
+          signed char status = ACCESS (clauses.status, other);
+          if (!status)
             prr ("antecedent '%d' in clause %d "
                  "is neither an original clause nor has been added",
                  signed_other, id);
-          else if (s < 0) {
+          else if (status < 0) {
             if (track) {
               struct deletion *other_deletion =
                   &ACCESS (clauses.deleted, other);
@@ -1412,7 +1413,7 @@ static void parse_proof () {
                    signed_other, id, other_deletion->id,
                    other_deletion->line);
             } else
-              prr ("antecedent %d in clause %d was already deleted before"
+              prr ("antecedent %d in clause %d was already deleted before "
                    "(run with '--track' for more information)",
                    other, id);
           }
@@ -1603,12 +1604,13 @@ static int map_id (int id) {
   assert (id != INT_MIN);
   int abs_id = abs (id);
   int res;
-  if (id < first_clause_added_in_proof)
+  if (abs_id < first_clause_added_in_proof)
     res = id;
-  else
+  else {
     res = ACCESS (clauses.map, abs_id);
-  if (id < 0)
-    res = -res;
+    if (id < 0)
+      res = -res;
+  }
   return res;
 }
 
@@ -1671,7 +1673,9 @@ static void write_non_empty_proof () {
         write_space ();
         int other = *p;
         assert (abs (other) < id);
-        write_int (map_id (other));
+        int mapped = map_id (other);
+        assert ((other < 0) == (mapped < 0));
+        write_int (mapped);
       }
       write_str (" 0\n");
       int head = ACCESS (clauses.heads, id);
@@ -1794,8 +1798,10 @@ static const char *numeral (size_t i) {
     return "1st";
   if (i == 1)
     return "2nd";
-  assert (i == 2);
-  return "3rd";
+  if (i == 2)
+    return "3rd";
+  assert (i == 3);
+  return "4th";
 }
 
 static void options (int argc, char **argv) {
@@ -1891,13 +1897,14 @@ static bool looks_like_a_dimacs_file (const char *path) {
     return false;
   if (has_suffix (path, ".cnf"))
     return true;
+  if (has_suffix (path, ".dimacs"))
+    return true;
+#if 0
   if (has_suffix (path, ".cnf.gz"))
     return true;
   if (has_suffix (path, ".cnf.bz2"))
     return true;
   if (has_suffix (path, ".cnf.xz"))
-    return true;
-  if (has_suffix (path, ".dimacs"))
     return true;
   if (has_suffix (path, ".dimacs.gz"))
     return true;
@@ -1905,6 +1912,7 @@ static bool looks_like_a_dimacs_file (const char *path) {
     return true;
   if (has_suffix (path, ".dimacs.xz"))
     return true;
+#endif
   FILE *file = fopen (path, "r");
   if (!file)
     return false;
