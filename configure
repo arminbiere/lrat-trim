@@ -52,6 +52,7 @@ COMPILE="gcc -Wall"
 [ $coverage = yes ] && COMPILE="$COMPILE -ftest-coverage -fprofile-arcs"
 [ $sanitize = yes ] && COMPILE="$COMPILE -fsanitize=address,undefined"
 [ $debug = no ] && COMPILE="$COMPILE -O3"
+[ $coverage = yes ] && COMPILE="$COMPILE -DCOVERAGE"
 [ $logging = yes ] && COMPILE="$COMPILE -DLOGGING"
 [ $check = no ] && COMPILE="$COMPILE -DNDEBUG"
 

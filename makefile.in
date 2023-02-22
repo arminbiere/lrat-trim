@@ -7,6 +7,7 @@ clean:
 	rm -f test/*/*.log* test/*/*.err* test/*/*.lrat[12] test/*/*.cnf[12]
 	rm -f *.gcda *.gcno *.gcov
 coverage: test
+	test/cover/run.sh
 	gcov lrat-trim.c
 format:
 	clang-format -i lrat-trim.c

@@ -306,6 +306,66 @@ static const char *pretty_bytes (size_t bytes) {
   return buffer;
 }
 
+#ifdef COVERAGE
+
+// This part of the code enclosed with '#ifdef COVERAGE' is only useful
+// during testing and debugging and should not be used in production by
+// keeping 'COVERAGE' undefined.
+
+// The motivation for having this is that 'lrat-trim' is meant to be robust
+// in terms of producing error messages if it runs out-of-memory and not
+// just give a segmentation fault if it does.
+
+// In order to test 'out-of-memory' errors and produce coverage we replace
+// the standard allocation functions with dedicated allocators which fail
+// after a given number of allocated bytes specified through the environment
+// variable 'LRAT_TRIM_ALLOCATION_LIMIT'.
+
+#define size_allocation_lines ((size_t)(1u << 12))
+
+static size_t allocation_lines[size_allocation_lines];
+static bool allocation_limit_set;
+static size_t allocation_limit;
+static size_t allocated_bytes;
+
+static bool check_allocation (size_t line, size_t bytes) {
+  if (!bytes)
+    return true;
+  if (!allocation_limit_set) {
+    const char *env = getenv ("LRAT_TRIM_ALLOCATION_LIMIT");
+    allocation_limit = env ? atol (env) : ~(size_t)0;
+    printf ("c COVERED allocated bytes limit %zu\n", allocation_limit);
+    allocation_limit_set = true;
+  }
+  assert (line < size_allocation_lines);
+  if (!allocation_lines[line])
+    printf ("c COVERED allocation at line %zu after allocating %zu bytes\n",
+            line, allocated_bytes);
+  if (verbosity > 0)
+    printf ("c COVERED allocating %zu bytes at line %zu\n", bytes, line);
+  allocation_lines[line] += bytes;
+  allocated_bytes += bytes;
+  return allocated_bytes <= allocation_limit;
+}
+
+static void *coverage_malloc (size_t line, size_t bytes) {
+  return check_allocation (line, bytes) ? malloc (bytes) : 0;
+}
+
+static void *coverage_calloc (size_t line, size_t n, size_t bytes) {
+  return check_allocation (line, n * bytes) ? calloc (n, bytes) : 0;
+}
+
+static void *coverage_realloc (size_t line, void *p, size_t bytes) {
+  return check_allocation (line, bytes) ? realloc (p, bytes) : 0;
+}
+
+#define malloc(BYTES) coverage_malloc (__LINE__, BYTES)
+#define calloc(N, BYTES) coverage_calloc (__LINE__, N, BYTES)
+#define realloc(P, BYTES) coverage_realloc (__LINE__, P, BYTES)
+
+#endif
+
 #define ZERO(E) \
   do { \
     memset (&(E), 0, sizeof (E)); \
