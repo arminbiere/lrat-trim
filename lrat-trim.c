@@ -329,8 +329,7 @@ static size_t allocation_limit;
 static size_t allocated_bytes;
 
 static bool check_allocation (size_t line, size_t bytes) {
-  if (!bytes)
-    return true;
+  assert (bytes);
   if (!allocation_limit_set) {
     const char *env = getenv ("LRAT_TRIM_ALLOCATION_LIMIT");
     allocation_limit = env ? atol (env) : ~(size_t)0;
@@ -341,8 +340,10 @@ static bool check_allocation (size_t line, size_t bytes) {
   if (!allocation_lines[line])
     printf ("c COVERED allocation at line %zu after allocating %zu bytes\n",
             line, allocated_bytes);
-  if (verbosity > 0)
+#ifdef LOGGING
+  if (verbosity == INT_MAX)
     printf ("c COVERED allocating %zu bytes at line %zu\n", bytes, line);
+#endif
   allocation_lines[line] += bytes;
   allocated_bytes += bytes;
   return allocated_bytes <= allocation_limit;
@@ -745,12 +746,22 @@ static void crr (int id, const char *fmt, ...) {
     assert (proof.input);
     assert (proof.input->path);
     fprintf (stderr, "in '%s'", proof.input->path);
+    if (verbosity <= 0)
+      fputs (" (use '-v' to print clause)", stderr);
+  } else if (verbosity > 0)
+    fputs (" (run with '-t' to track line information)", stderr);
+  else
+    fputs (" (run with '-t' to track line information and "
+           "'-v' to print the actual clause)",
+           stderr);
+  if (verbosity > 0) {
+    fputs (": ", stderr);
+    int *l = ACCESS (clauses.literals, id);
+    while (*l)
+      fprintf (stderr, "%d ", *l++);
+    fputc ('0', stderr);
   }
-  fputs (": ", stderr);
-  int *l = ACCESS (clauses.literals, id);
-  while (*l)
-    fprintf (stderr, "%d ", *l++);
-  fputs ("0\n", stderr);
+  fputc ('\n', stderr);
   exit (1);
 }
 
@@ -787,7 +798,7 @@ static void check_clause (int id, int *literals, int *antecedents) {
       signed char value = assigned_literal (lit);
       if (value < 0)
         continue;
-      if (unit)
+      if (unit && unit != lit)
         crr (id, "antecedent '%d' does not produce unit", aid);
       unit = lit;
       if (!value)
@@ -1127,61 +1138,93 @@ static void parse_proof () {
             prr ("deleted clause '%d' "
                  "larger than deletion identifier '%d'",
                  other, id);
+
           if (!first_clause_added_in_proof)
             ADJUST (clauses.status, other);
+
           signed char *status_ptr = &ACCESS (clauses.status, other);
           signed char status = *status_ptr;
           *status_ptr = -1;
-          if (!status &&
-              (last_clause_added_in_cnf || first_clause_added_in_proof)) {
-            if (relax)
+
+          struct deletion *other_deletion = 0;
+
+          // Allocate deletion tracking information if needed.
+
+          if (track) {
+            ADJUST (clauses.deleted, other);
+            other_deletion = &ACCESS (clauses.deleted, other);
+          }
+
+          // First check the two problematic cases, where the clause
+          // requested to be deleted was never added or if it was added but
+          // is already deleted.
+
+          if (!status) { // Never added.
+
+            if (!last_clause_added_in_cnf && !first_clause_added_in_proof)
+              ignored_deletions++; // No CNF and no clause added (yet).
+            else if (relax)
               ignored_deletions++;
             else
               prr ("deleted clause '%d' in deletion %d "
                    "is neither an original clause nor has been added "
                    "(use '--relax' to ignore such deletions)",
                    other, id);
-          }
-          if (track) {
-            ADJUST (clauses.deleted, other);
-            struct deletion *other_deletion =
-                &ACCESS (clauses.deleted, other);
-            if (!status && first_clause_added_in_proof) {
-              assert (relax);
-            } else if (status < 0) {
+
+          } else if (status < 0) { // Already deleted.
+
+            if (relax)
+              ignored_deletions++;
+            else if (track) {
               assert (other_deletion->id);
               assert (other_deletion->line);
               prr ("clause %d requested to be deleted in deletion %d "
-                   "was already deleted in deletion %d at line %zu",
+                   "was already deleted in deletion %d at line %zu "
+                   "(use '--relax' to ignore such deletions)",
                    other, id, other_deletion->id, other_deletion->line);
-            }
-            *status_ptr = -1;
+            } else
+              prr ("clause %d requested to be deleted in deletion %d "
+                   "was already deleted before "
+                   "(use '--relax' to ignore such deletions and "
+                   " with '--track' for more information)",
+                   other, id);
+          }
+
+          // Deletion tracking information needs to be set if tracking is
+          // requested and the clause was never added or got now deleted.
+
+          if (track && status >= 0) {
             size_t deleted_line = input.lines + 1;
             dbg ("marked clause %d to be deleted "
                  "at line %zu in deletion %d",
                  other, deleted_line, id);
             other_deletion->line = deleted_line;
             other_deletion->id = id;
-          } else if (status < 0)
-            prr ("clause %d requested to be deleted in deletion %d "
-                 "was already deleted before "
-                 "(run with '--track' for more information)",
-                 other, id);
-          if (is_original_clause (id))
-            statistics.original.cnf.deleted++;
-          else
-            statistics.original.proof.deleted++;
-          bool delete_literals_eagerly;
+          }
 
+          if (status >= 0) {
+            if (is_original_clause (id))
+              statistics.original.cnf.deleted++;
+            else
+              statistics.original.proof.deleted++;
+          }
+
+          // We want to delete the literals of the deleted clause eagerly as
+          // early as possible to save memory, i.e., while forward checking.
+
+          bool delete_literals_eagerly;
           if (checking)
             delete_literals_eagerly = forward;
           else
-            delete_literals_eagerly = !trimming;
+            delete_literals_eagerly = !trimming; // TODO why not false?
 
           if (delete_literals_eagerly) {
             assert (!proof.output);
             assert (!cnf.output);
             assert (EMPTY (clauses.antecedents));
+
+            // TODO do not get this either ...
+
             if (!relax || other < SIZE (clauses.literals)) {
               int **l = &ACCESS (clauses.literals, other);
               free (*l);
@@ -1433,14 +1476,10 @@ static void parse_proof () {
   msg ("parsed original proof with %zu added and %zu deleted clauses",
        statistics.original.proof.added, statistics.original.proof.deleted);
 
-  if (relax) {
-    if (ignored_deletions)
-      vrb ("ignored %zu deleted clauses due to '--relax'",
-           ignored_deletions);
-    else
-      vrb ("no clause deletion had to be ignored due to '--relax'");
-  } else
-    assert (!ignored_deletions);
+  if (ignored_deletions)
+    vrb ("ignored %zu deleted clauses", ignored_deletions);
+  else
+    vrb ("no clause deletions had to be ignored");
 
   double end = process_time (), duration = end - start;
   vrb ("finished parsing proof after %.2f seconds", end);
@@ -2016,11 +2055,19 @@ static void print_statistics () {
   msg ("total time of %.2f seconds", t);
 }
 
+static void close_coverage () {
+#ifdef COVERAGE
+  printf ("c COVERED pretty_bytes (1<<30) = \"%s\"\n",
+          pretty_bytes (1 << 30));
+#endif
+}
+
 int main (int argc, char **argv) {
   options (argc, argv);
   open_input_files ();
   print_banner ();
   print_mode ();
+  close_coverage ();
   parse_cnf ();
   parse_proof ();
   trim_proof ();

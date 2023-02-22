@@ -51,6 +51,9 @@ run () {
 run empty
 run blocked
 run nounit1
+run delnonexist1
+run delnonexist2
+run deltwice
 
 runs=`grep '^run [a-z]' run.sh|wc -l`
 

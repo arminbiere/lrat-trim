@@ -54,26 +54,29 @@ run 0 version1 -V
 run 0 version2 --version
 run 1 invalidoption --this-is-not-a-valid-option
 run 20 false false.cnf /dev/null
-run 20 twocores1a -v twocores1.cnf twocores1a.lrat twocores1a.lrat1 twocores1a.cnf1
-run 20 twocores1a -v twocores1a.cnf1 twocores1a.lrat1 --relax -S
-run 20 twocores1b -v twocores1.cnf twocores1b.lrat twocores1b.lrat1 twocores1b.cnf1
-run 20 twocores1a -v twocores1.cnf twocores1b.lrat1
+run 20 twocores1a1 -v twocores1.cnf twocores1a.lrat twocores1a.lrat1 twocores1a.cnf1
+run 20 twocores1a2 -v twocores1a.cnf1 twocores1a.lrat1 --relax -S
+run 20 twocores1a3 -v twocores1a.cnf1 twocores1a.lrat1 --relax -S --track
+run 20 twocores1b4 -v twocores1.cnf twocores1b.lrat twocores1b.lrat1 twocores1b.cnf1
+run 20 twocores1a5 -v twocores1.cnf twocores1b.lrat1
+run 1 twocores1a6 -v twocores1a.cnf1 twocores1a.lrat1 -S
 run 20 add4writeall -q add4.cnf add4.lrat add4.lrat1 add4.cnf1
 run 20 add4writeallagain1 -v add4.cnf add4.lrat1
 run 20 add8writeall -q add8.cnf add8.lrat add8.lrat1 add8.cnf1
 run 20 add8writeallagain1 -v add8.cnf add8.lrat1 --relax
 run 0 add4null1 add8.cnf /dev/null /dev/null /dev/null
 run 0 add4null2 add8.cnf /dev/null /dev/null add8.cnf2
-run 0 add4null2 add8.cnf /dev/null add8.lrat2 /dev/null
-run 0 add4null2 add8.cnf /dev/null add8.lrat2 add8.cnf2
-run 20 add4null1 add8.cnf add8.lrat /dev/null /dev/null
-run 20 add4null2 add8.cnf add8.lrat /dev/null add8.cnf2
-run 20 add4null2 add8.cnf add8.lrat add8.lrat2 /dev/null
-run 20 add4null2 add8.cnf add8.lrat add8.lrat2 add8.cnf2
-run 0 empty empty.cnf /dev/null -q
+run 0 add4null3 add8.cnf /dev/null add8.lrat2 /dev/null
+run 0 add4null4 add8.cnf /dev/null add8.lrat2 add8.cnf2
+run 20 add4null5 add8.cnf add8.lrat /dev/null /dev/null
+run 20 add4null6 add8.cnf add8.lrat /dev/null add8.cnf2
+run 20 add4null7 add8.cnf add8.lrat add8.lrat2 /dev/null
+run 20 add4null8 add8.cnf add8.lrat add8.lrat2 add8.cnf2
+run 0 empty1 empty.cnf /dev/null -q
+run 0 empty2 empty.cnf /dev/null /dev/null /dev/null
 run 0 cnfws cnfws.cnf /dev/null
-run 1 writenotrim empty.cnf /dev/null /dev/null --no-trim
-run 0 writenotrim empty.cnf /dev/null /dev/null --no-check
+run 1 writenotrim1 empty.cnf /dev/null /dev/null --no-trim
+run 0 writenotrim2 empty.cnf /dev/null /dev/null --no-check
 run 20 falsenotrim false.cnf /dev/null --no-trim
 run 20 add8notrimbw add8.cnf add8.lrat --no-trim
 run 20 add8notrimfw add8.cnf add8.lrat --no-trim -S

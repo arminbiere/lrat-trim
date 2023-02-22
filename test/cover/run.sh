@@ -7,7 +7,7 @@ die () {
 
 cd `dirname $0`
 
-rm -f *.err* *.log* *.lrat[12] *.cnf[12]
+rm -f *.err* *.log* *.cnf1 *.lrat1
 
 lrattrim=../../lrat-trim
 
@@ -53,7 +53,7 @@ run () {
     allocations=`awk '/^c COVERED allocation/{print \$(NF-1)}' $log`
     for limit in $allocations
     do
-      LRAT_TRIM_ALLOCATION_LIMIT=$limit $cmd 1>${log}1 2>${err}1
+      LRAT_TRIM_ALLOCATION_LIMIT=$limit $cmd 1>${log}$limit 2>${err}$limit
       status=$?
       if [ $status = 1 ]
       then
