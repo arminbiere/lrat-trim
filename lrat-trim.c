@@ -1956,10 +1956,7 @@ static void open_input_files () {
                "as it looks like a CNF in DIMACS format (use '--force' to "
                "overwrite nevertheless)",
                files[1].path);
-      } else
-        wrn ("using '%s' while second file '%s' does not look a CNF "
-             "does not make sense",
-             force, files[1].path);
+      }
       proof.output = &files[1];
     }
   } else {
