@@ -13,7 +13,7 @@ lrattrim=../../lrat-trim
 
 [ -f $lrattrim ] || die "could not find 'lrat-trim'"
 
-run () {
+runascii () {
   name=$1
 
   lrat=$name.lrat
@@ -59,49 +59,16 @@ run () {
     echo "./lrat-trim test/trim/$lrat1 test/trim/$lrat2 # trimming failed"
     exit 1
   fi
+
+  runs=`expr $runs + 1`
 }
 
-run empty
-run bin1
-run full1
-run full2
-run full3
-run full4
-run full5
-run full6
-run full7
-run add4
-run add8
-run ph2
-run ph3
-run ph4
-run add16
-run add32
-run add64
-run add128
-run prime65537
+runs=0
 
-run rat1
-
-runs=`grep '^run [a-z]' run.sh|wc -l`
-logs=`ls *.log|wc -l`
-log1s=`ls *.log1|wc -l`
-log2s=`ls *.log2|wc -l`
-errs=`ls *.err|wc -l`
-err1s=`ls *.err1|wc -l`
-err2s=`ls *.err2|wc -l`
-lrats=`ls *lrat|wc -l`
-lrat1s=`ls *lrat|wc -l`
-lrat2s=`ls *lrat|wc -l`
-
-[ $runs = $logs ] || die "found $runs runs in './run.sh' but $logs '.log' files"
-[ $runs = $log1s ] || die "found $runs runs in './run.sh' but $log1s '.log1' files"
-[ $runs = $log2s ] || die "found $runs runs in './run.sh' but $log2s '.log2' files"
-[ $runs = $errs ] || die "found $runs runs in './run.sh' but $errs '.err' files"
-[ $runs = $err1s ] || die "found $runs runs in './run.sh' but $err1s '.err1' files"
-[ $runs = $err2s ] || die "found $runs runs in './run.sh' but $err1s '.err2' files"
-[ $runs = $lrats ] || die "found $runs runs in './run.sh' but $lrats '.lrat' files"
-[ $runs = $lrat1s ] || die "found $runs runs in './run.sh' but $lrat1s '.lrat1' files"
-[ $runs = $lrat2s ] || die "found $runs runs in './run.sh' but $lrat2s '.lrat2' files"
+for i in `ls -rS *.lrat`
+do
+  name=`basename $i .lrat`
+  runascii $name
+done
 
 echo "passed $runs trimming tests in 'test/trim/run.sh'"
