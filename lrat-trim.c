@@ -8,6 +8,7 @@ static const char * usage =
 "\n"
 "where '<option> ...' is a potentially empty list of the following options\n"
 "\n"
+"  -a | --ascii    write output-proof in binary LRAT format\n"
 "  -f | --force    overwrite CNF alike second file with proof\n"
 "  -S | --forward  forward check all added clauses eagerly\n"
 "  -h | --help     print this command line option summary\n"
@@ -19,6 +20,7 @@ static const char * usage =
 "  -v | --verbose  enable verbose messages\n"
 "  -V | --version  print version only\n"
 "\n"
+"  --no-binary     synonym to '-a' or '--ascii'\n"
 "  --no-check      disable checking clauses (default without CNF)\n"
 "  --no-trim       disable trimming (assume all clauses used)\n"
 "\n"
@@ -173,6 +175,7 @@ struct {
   struct file *input, *output;
 } cnf, proof;
 
+static const char *ascii;
 static const char *force;
 static const char *forward;
 static const char *nocheck;
@@ -1815,7 +1818,10 @@ static void options (int argc, char **argv) {
       fputs (usage, stdout);
       exit (0);
     }
-    if (!strcmp (arg, "-f") || !strcmp (arg, "--force"))
+    if (!strcmp (arg, "-a") || !strcmp (arg, "--ascii") ||
+        !strcmp (arg, "--no-binary"))
+      ascii = arg;
+    else if (!strcmp (arg, "-f") || !strcmp (arg, "--force"))
       force = arg;
     else if (!strcmp (arg, "-S") || !strcmp (arg, "--forward"))
       forward = arg;
@@ -1977,6 +1983,8 @@ static void open_input_files () {
   if (proof.output && forward)
     die ("can not write proof to '%s' with '%s'", proof.output->path,
          forward);
+  if (!proof.output && ascii)
+    wrn ("'%s' without output-proof does not make sense", ascii);
   if (proof.output && looks_like_a_dimacs_file (proof.output->path)) {
     if (force)
       wrn ("forced to write third file '%s' with trimmed proof "
