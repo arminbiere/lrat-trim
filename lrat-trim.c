@@ -16,7 +16,7 @@ static const char * usage =
 "  -l | --log      print all messages including logging messages\n"
 #endif
 "  -q | --quiet    be quiet and do not print any messages\n" 
-"  -t | --track    track line information for clauses\n"
+"  -t | --track    track more detailed addition and deletion information\n"
 "  -v | --verbose  enable verbose messages\n"
 "  -V | --version  print version only\n"
 "\n"
@@ -121,11 +121,11 @@ struct ints_map {
 };
 
 struct addition {
-  size_t line;
+  size_t info;
 };
 
 struct deletion {
-  size_t line;
+  size_t info;
   int id;
 };
 
@@ -187,6 +187,7 @@ static int verbosity;
 static bool checking;
 static bool trimming;
 static bool relax;
+static bool trick;
 
 static int empty_clause;
 static int last_clause_added_in_cnf;
@@ -755,7 +756,8 @@ static void crr (int id, const char *fmt, ...) {
   fprintf (stderr, " while checking clause '%d'", id);
   if (track) {
     struct addition *addition = &ACCESS (clauses.added, id);
-    fprintf (stderr, " at line '%zu' ", addition->line);
+    fprintf (stderr, " at %s '%zu' ", trick ? "byte" : "line",
+             addition->info);
     assert (proof.input);
     assert (proof.input->path);
     fprintf (stderr, "in '%s'", proof.input->path);
@@ -1068,7 +1070,7 @@ static size_t ignored_deletions = 0;
 static struct int_stack parsed_literals;
 static struct int_stack parsed_antecedents;
 
-static void delete_antecedent (int other, int id) {
+static void delete_antecedent (int other, int id, size_t info) {
   if (!first_clause_added_in_proof)
     ADJUST (clauses.status, other);
 
@@ -1107,11 +1109,12 @@ static void delete_antecedent (int other, int id) {
       ignored_deletions++;
     else if (track) {
       assert (other_deletion->id);
-      assert (other_deletion->line);
+      assert (other_deletion->info);
       prr ("clause %d requested to be deleted in deletion %d "
-           "was already deleted in deletion %d at line %zu "
+           "was already deleted in deletion %d at %s %zu "
            "(use '--relax' to ignore such deletions)",
-           other, id, other_deletion->id, other_deletion->line);
+           other, id, other_deletion->id, trick ? "byte" : "line",
+           other_deletion->info);
     } else
       prr ("clause %d requested to be deleted in deletion %d "
            "was already deleted before "
@@ -1124,11 +1127,10 @@ static void delete_antecedent (int other, int id) {
   // requested and the clause was never added or got now deleted.
 
   if (track && status >= 0) {
-    size_t deleted_line = input.lines + 1;
     dbg ("marked clause %d to be deleted "
-         "at line %zu in deletion %d",
-         other, deleted_line, id);
-    other_deletion->line = deleted_line;
+         "at %s %zu in deletion %d",
+         other, trick ? "byte" : "line", info+1, id);
+    other_deletion->info = info+1;
     other_deletion->id = id;
   }
 
@@ -1193,14 +1195,15 @@ static void parse_proof () {
   else
     prr ("unexpected first byte '0x02%x'", (unsigned)ch);
 
-  const bool binary = input.binary;
+  const bool binary = trick = input.binary;
 
   int last_id = 0;
-  size_t line = 0;
 
   while (ch != EOF) {
-    line = input.lines;
+
+    const size_t info = trick ? input.bytes : input.lines;
     int id, type = 0;
+
     if (binary) {
       assert (ch == 'a' || ch == 'd');
       if (ch != 'a' && ch != 'd')
@@ -1210,7 +1213,7 @@ static void parse_proof () {
       if (ch == EOF)
         prr ("end-of-file after '%c'", type);
       if (ch & 1)
-        prr ("invalid odd clause identifier");
+        prr ("invalid negative clause identifier");
       if (ch) {
         unsigned uid = 0, shift = 0;
         for (;;) {
@@ -1252,7 +1255,7 @@ static void parse_proof () {
       }
       if (ch != ' ')
         prr ("expected space after identifier '%d'", id);
-      dbg ("parsed clause identifier %d at line %zu", id, line + 1);
+      dbg ("parsed clause identifier %d at line %zu", id, info + 1);
       ch = read_char ();
       if (ch == 'd') {
         ch = read_char ();
@@ -1275,14 +1278,14 @@ static void parse_proof () {
           if (ch == EOF)
             prr ("end-of-file before zero byte in deletion %d", id);
           if (ch & 1)
-            prr ("invalid odd antecedent in deletion %d", id);
+            prr ("invalid negative antecedent in deletion %d", id);
           if (ch) {
-            unsigned uid = 0, shift = 0;
+            unsigned uother = 0, shift = 0;
             for (;;) {
               unsigned char uch = ch;
               if (shift == 28 && (uch & ~15u))
                 prr ("excessive antecedent in deletion %d", id);
-              uid = (uch & 127) << shift;
+              uother = (uch & 127) << shift;
               if (!(uch & 128))
                 break;
               shift += 7;
@@ -1293,7 +1296,7 @@ static void parse_proof () {
               if (ch == EOF)
                 prr ("end-of-file parsing antecedent in deletion %d", id);
             }
-            other = (uid >> 1);
+            other = (uother >> 1);
           } else
             other = 0;
         } else {
@@ -1333,7 +1336,7 @@ static void parse_proof () {
             prr ("expected new-line after '0' at end of deletion %d", id);
         }
         if (other)
-          delete_antecedent (other, id);
+          delete_antecedent (other, id, info);
         last = other;
       } while (last);
 #if !defined(NDEBUG) || defined(LOGGING)
@@ -1379,8 +1382,10 @@ static void parse_proof () {
             prr ("end-of-file before zero byte "
                  "terminating literals in clause %d",
                  id);
-          if (!ch)
+          if (!ch) {
+            PUSH (parsed_literals, 0);
             break;
+          }
           unsigned uidx = 0, shift = 0;
           for (;;) {
             unsigned char uch = ch;
@@ -1483,6 +1488,34 @@ static void parse_proof () {
       assert (EMPTY (parsed_antecedents));
 
       if (binary) {
+        for (;;) {
+          ch = read_char ();
+          if (ch == EOF)
+            prr ("end-of-file instead of antecedent in clause %d", id);
+          if (!ch) {
+            PUSH (parsed_antecedents, 0);
+            break;
+          }
+          unsigned uother = 0, shift = 0;
+          for (;;) {
+            unsigned char uch = ch;
+            if (shift == 28 && (uch & ~15u))
+              prr ("excessive antecedent in clause %d", id);
+            uother = (uch & 127) << shift;
+            if (!(uch & 128))
+              break;
+            shift += 7;
+            ch = read_char ();
+            if (!ch)
+              prr ("invalid trailing zero byte in clause deletion %d", id);
+            if (ch == EOF)
+              prr ("end-of-file parsing antecedent in clause %d", id);
+          }
+          int other = (uother >> 1);
+          if (uother & 1)
+            other = -other;
+          PUSH (parsed_antecedents, other);
+        }
       } else {
         int last = 0;
         assert (!last);
@@ -1540,11 +1573,11 @@ static void parse_proof () {
                 struct deletion *other_deletion =
                     &ACCESS (clauses.deleted, other);
                 assert (other_deletion->id);
-                assert (other_deletion->line);
+                assert (other_deletion->info);
                 prr ("antecedent %d in clause %d "
-                     "was already deleted in deletion %d at line %zu",
+                     "was already deleted in deletion %d at %s %zu",
                      signed_other, id, other_deletion->id,
-                     other_deletion->line);
+                     trick ? "byte" : "line", other_deletion->info);
               } else
                 prr (
                     "antecedent %d in clause %d was already deleted before "
@@ -1565,7 +1598,7 @@ static void parse_proof () {
       if (track) {
         ADJUST (clauses.added, id);
         struct addition *addition = &ACCESS (clauses.added, id);
-        addition->line = line;
+        addition->info = info  + 1;
       }
       statistics.original.proof.added++;
       if (checking && forward) {
