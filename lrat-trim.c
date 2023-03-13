@@ -1157,7 +1157,7 @@ static void delete_antecedent (int other, int id, size_t info) {
 
     assert (EMPTY (clauses.antecedents));
 
-    // TODO the logic here needs to documentation!!!!
+    // TODO the logic here needs documentation!!!!
 
     if (!relax || other < SIZE (clauses.literals)) {
 
@@ -1194,6 +1194,10 @@ static void parse_proof () {
     prr ("unexpected first character '%c'", ch);
   else
     prr ("unexpected first byte '0x02%x'", (unsigned)ch);
+
+  // To track in the binary proof format we use byte offsets instead of line
+  // numbers.  This information is used in debugging and error messages and
+  // 'trick' is used to tell this difference (using 'byte' vs. 'line').
 
   const bool binary = trick = input.binary;
 
