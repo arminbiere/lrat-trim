@@ -93,8 +93,9 @@ struct file {
   FILE *file;
   size_t bytes;
   size_t lines;
-  int close;
-  int eof;
+  bool binary;
+  char close;
+  bool eof;
   int last;
   int saved;
 };
@@ -229,12 +230,18 @@ static void die (const char *fmt, ...) {
 
 static void prr (const char *fmt, ...) {
   assert (input.path);
-  size_t line = input.lines + 1;
-  if (input.last == '\n')
-    line--;
-  fprintf (stderr,
-           "lrat-trim: parse error in '%s' %s line %zu: ", input.path,
-           input.eof && input.last == '\n' ? "after" : "in", line);
+  if (input.binary) {
+    fprintf (stderr,
+             "lrat-trim: parse error in '%s' after reading %zu bytes",
+             input.path, input.bytes);
+  } else {
+    size_t line = input.lines + 1;
+    if (input.last == '\n')
+      line--;
+    fprintf (stderr,
+             "lrat-trim: parse error in '%s' %s line %zu: ", input.path,
+             input.eof && input.last == '\n' ? "after" : "in", line);
+  }
   va_list ap;
   va_start (ap, fmt);
   vfprintf (stderr, fmt, ap);
@@ -1057,6 +1064,112 @@ static void parse_cnf () {
   variables.original = header_variables;
 }
 
+static size_t ignored_deletions = 0;
+static struct int_stack parsed_literals;
+static struct int_stack parsed_antecedents;
+
+static void delete_antecedent (int other, int id) {
+  if (!first_clause_added_in_proof)
+    ADJUST (clauses.status, other);
+
+  signed char *status_ptr = &ACCESS (clauses.status, other);
+  signed char status = *status_ptr;
+  *status_ptr = -1;
+
+  struct deletion *other_deletion = 0;
+
+  // Allocate deletion tracking information if needed.
+
+  if (track) {
+    ADJUST (clauses.deleted, other);
+    other_deletion = &ACCESS (clauses.deleted, other);
+  }
+
+  // First check the two problematic cases, where the clause
+  // requested to be deleted was never added or if it was added but
+  // is already deleted.
+
+  if (!status) { // Never added.
+
+    if (!last_clause_added_in_cnf && !first_clause_added_in_proof)
+      ignored_deletions++; // No CNF and no clause added (yet).
+    else if (relax)
+      ignored_deletions++;
+    else
+      prr ("deleted clause '%d' in deletion %d "
+           "is neither an original clause nor has been added "
+           "(use '--relax' to ignore such deletions)",
+           other, id);
+
+  } else if (status < 0) { // Already deleted.
+
+    if (relax)
+      ignored_deletions++;
+    else if (track) {
+      assert (other_deletion->id);
+      assert (other_deletion->line);
+      prr ("clause %d requested to be deleted in deletion %d "
+           "was already deleted in deletion %d at line %zu "
+           "(use '--relax' to ignore such deletions)",
+           other, id, other_deletion->id, other_deletion->line);
+    } else
+      prr ("clause %d requested to be deleted in deletion %d "
+           "was already deleted before "
+           "(use '--relax' to ignore such deletions and "
+           " with '--track' for more information)",
+           other, id);
+  }
+
+  // Deletion tracking information needs to be set if tracking is
+  // requested and the clause was never added or got now deleted.
+
+  if (track && status >= 0) {
+    size_t deleted_line = input.lines + 1;
+    dbg ("marked clause %d to be deleted "
+         "at line %zu in deletion %d",
+         other, deleted_line, id);
+    other_deletion->line = deleted_line;
+    other_deletion->id = id;
+  }
+
+  if (status >= 0) {
+    if (is_original_clause (id))
+      statistics.original.cnf.deleted++;
+    else
+      statistics.original.proof.deleted++;
+  }
+
+  // We want to delete the literals of the deleted clause eagerly as
+  // early as possible to save memory, i.e., while forward checking.
+
+  bool delete_literals_eagerly;
+  if (checking)
+    delete_literals_eagerly = forward;
+  else
+    delete_literals_eagerly = !trimming;
+
+  if (delete_literals_eagerly) {
+
+    assert (!proof.output);
+    assert (!cnf.output);
+
+    assert (EMPTY (clauses.antecedents));
+
+    // TODO the logic here needs to documentation!!!!
+
+    if (!relax || other < SIZE (clauses.literals)) {
+
+      int **l = &ACCESS (clauses.literals, other);
+      free (*l);
+      *l = 0;
+    }
+  }
+
+#if !defined(NDEBUG) || defined(LOGGING)
+  PUSH (parsed_antecedents, other);
+#endif
+}
+
 static void parse_proof () {
   double start = process_time ();
   vrb ("starting parsing proof after %.2f seconds", start);
@@ -1065,13 +1178,12 @@ static void parse_proof () {
   msg ("reading proof from '%s'", input.path);
 
   int ch = read_first_char ();
-  bool binary;
   if (ch == 'a' || ch == 'd') {
     vrb ("first character '%c' indicates binary proof format", ch);
-    binary = true;
+    input.binary = true;
   } else if (isdigit (ch)) {
     vrb ("first character '%c' indicates ASCII proof format", ch);
-    binary = false;
+    assert (!input.binary);
   } else if (ch == 'c' || ch == 'p')
     prr ("unexpected '%c' as first character: "
          "did you use a CNF instead of a proof file?",
@@ -1079,395 +1191,309 @@ static void parse_proof () {
   else if (isprint (ch))
     prr ("unexpected first character '%c'", ch);
   else
-    prr ("unexpected first byte '0x02%x'", (unsigned) ch);
+    prr ("unexpected first byte '0x02%x'", (unsigned)ch);
+
+  const bool binary = input.binary;
 
   int last_id = 0;
-  struct int_stack parsed_literals;
-  struct int_stack parsed_antecedents;
-  ZERO (parsed_literals);
-  ZERO (parsed_antecedents);
-  size_t ignored_deletions = 0;
   size_t line = 0;
 
   while (ch != EOF) {
-    if (!isdigit (ch))
-      prr ("expected digit as first character of line");
     line = input.lines;
-    int id = ch - '0';
-    while (ISDIGIT (ch = read_char ())) {
-      if (!id)
-        prr ("unexpected digit '%c' after '0'", ch);
-      if (INT_MAX / 10 < id)
-      LINE_IDENTIFIER_EXCEEDS_INT_MAX:
-        prr ("line identifier '%s' exceeds 'INT_MAX'",
-             exceeds_int_max (id, ch));
-      id *= 10;
-      int digit = ch - '0';
-      if (INT_MAX - digit < id) {
-        id /= 10;
-        goto LINE_IDENTIFIER_EXCEEDS_INT_MAX;
+    int id;
+    if (binary) {
+      id = INT_MAX;
+      assert (ch == 'a' || ch == 'd');
+    } else {
+      if (!isdigit (ch))
+        prr ("expected digit as first character of line");
+      id = ch - '0';
+      while (ISDIGIT (ch = read_char ())) {
+        if (!id)
+          prr ("unexpected digit '%c' after '0'", ch);
+        if (INT_MAX / 10 < id)
+        LINE_IDENTIFIER_EXCEEDS_INT_MAX:
+          prr ("line identifier '%s' exceeds 'INT_MAX'",
+               exceeds_int_max (id, ch));
+        id *= 10;
+        int digit = ch - '0';
+        if (INT_MAX - digit < id) {
+          id /= 10;
+          goto LINE_IDENTIFIER_EXCEEDS_INT_MAX;
+        }
+        id += digit;
       }
-      id += digit;
+      if (ch != ' ')
+        prr ("expected space after identifier '%d'", id);
     }
-    if (ch != ' ')
-      prr ("expected space after identifier '%d'", id);
     if (id < last_id)
       prr ("identifier '%d' smaller than last '%d'", id, last_id);
     dbg ("parsed clause identifier %d at line %zu", id, line + 1);
     ADJUST (clauses.status, id);
-    ch = read_char ();
-    if (ch == 'd') {
-      ch = read_char ();
-      if (ch != ' ')
-        prr ("expected space after '%d d' in deletion %d", id, id);
-      assert (EMPTY (parsed_antecedents));
-      int last = 0;
-      do {
-        ch = read_char ();
-        if (!ISDIGIT (ch)) {
-          if (last)
-            prr ("expected digit after '%d ' in deletion %d", last, id);
-          else
-            prr ("expected digit after '%d d ' in deletion %d", id, id);
-        }
-        int other = ch - '0';
-        while (ISDIGIT ((ch = read_char ()))) {
-          if (!other)
-            prr ("unexpected digit '%c' after '0' in deletion %d", ch, id);
-          if (INT_MAX / 10 < other)
-          DELETED_CLAUSE_IDENTIFIER_EXCEEDS_INT_MAX:
-            prr ("deleted clause identifier '%s' exceeds 'INT_MAX' "
-                 "in deletion %d",
-                 exceeds_int_max (other, ch), id);
-          other *= 10;
-          int digit = ch - '0';
-          if (INT_MAX - digit < other) {
-            other /= 10;
-            goto DELETED_CLAUSE_IDENTIFIER_EXCEEDS_INT_MAX;
-          }
-          other += digit;
-        }
-        if (other) {
-          if (ch != ' ')
-            prr ("expected space after '%d' in deletion %d", other, id);
-          if (id && other > id)
-            prr ("deleted clause '%d' "
-                 "larger than deletion identifier '%d'",
-                 other, id);
-
-          if (!first_clause_added_in_proof)
-            ADJUST (clauses.status, other);
-
-          signed char *status_ptr = &ACCESS (clauses.status, other);
-          signed char status = *status_ptr;
-          *status_ptr = -1;
-
-          struct deletion *other_deletion = 0;
-
-          // Allocate deletion tracking information if needed.
-
-          if (track) {
-            ADJUST (clauses.deleted, other);
-            other_deletion = &ACCESS (clauses.deleted, other);
-          }
-
-          // First check the two problematic cases, where the clause
-          // requested to be deleted was never added or if it was added but
-          // is already deleted.
-
-          if (!status) { // Never added.
-
-            if (!last_clause_added_in_cnf && !first_clause_added_in_proof)
-              ignored_deletions++; // No CNF and no clause added (yet).
-            else if (relax)
-              ignored_deletions++;
-            else
-              prr ("deleted clause '%d' in deletion %d "
-                   "is neither an original clause nor has been added "
-                   "(use '--relax' to ignore such deletions)",
-                   other, id);
-
-          } else if (status < 0) { // Already deleted.
-
-            if (relax)
-              ignored_deletions++;
-            else if (track) {
-              assert (other_deletion->id);
-              assert (other_deletion->line);
-              prr ("clause %d requested to be deleted in deletion %d "
-                   "was already deleted in deletion %d at line %zu "
-                   "(use '--relax' to ignore such deletions)",
-                   other, id, other_deletion->id, other_deletion->line);
-            } else
-              prr ("clause %d requested to be deleted in deletion %d "
-                   "was already deleted before "
-                   "(use '--relax' to ignore such deletions and "
-                   " with '--track' for more information)",
-                   other, id);
-          }
-
-          // Deletion tracking information needs to be set if tracking is
-          // requested and the clause was never added or got now deleted.
-
-          if (track && status >= 0) {
-            size_t deleted_line = input.lines + 1;
-            dbg ("marked clause %d to be deleted "
-                 "at line %zu in deletion %d",
-                 other, deleted_line, id);
-            other_deletion->line = deleted_line;
-            other_deletion->id = id;
-          }
-
-          if (status >= 0) {
-            if (is_original_clause (id))
-              statistics.original.cnf.deleted++;
-            else
-              statistics.original.proof.deleted++;
-          }
-
-          // We want to delete the literals of the deleted clause eagerly as
-          // early as possible to save memory, i.e., while forward checking.
-
-          bool delete_literals_eagerly;
-          if (checking)
-            delete_literals_eagerly = forward;
-          else
-            delete_literals_eagerly = !trimming;
-
-          if (delete_literals_eagerly) {
-
-            assert (!proof.output);
-            assert (!cnf.output);
-
-            assert (EMPTY (clauses.antecedents));
-
-            // TODO the logic here needs to documentation!!!!
-
-            if (!relax || other < SIZE (clauses.literals)) {
-
-              int **l = &ACCESS (clauses.literals, other);
-              free (*l);
-              *l = 0;
-            }
-          }
-        } else if (ch != '\n')
-          prr ("expected new-line after '0' at end of deletion %d", id);
-#if !defined(NDEBUG) || defined(LOGGING)
-        PUSH (parsed_antecedents, other);
-#endif
-        last = other;
-      } while (last);
-#if !defined(NDEBUG) || defined(LOGGING)
-      dbgs (parsed_antecedents.begin,
-            "parsed deletion %d and deleted clauses", id);
-      CLEAR (parsed_antecedents);
-#endif
+    if (binary) {
     } else {
-      if (id == last_id)
-        prr ("line identifier '%d' of addition line does not increase", id);
-      if (!first_clause_added_in_proof) {
-        if (last_clause_added_in_cnf) {
-          if (last_clause_added_in_cnf == id)
-            prr ("first added clause %d in proof "
-                 "has same identifier as last original clause",
-                 id);
-          else if (last_clause_added_in_cnf > id)
-            prr ("first added clause %d in proof "
-                 "has smaller identifier as last original clause %d",
-                 id, last_clause_added_in_cnf);
-        }
-        vrb ("adding first clause %d in proof", id);
-        first_clause_added_in_proof = id;
-        if (!last_clause_added_in_cnf) {
-          signed char *begin = clauses.status.begin;
-          signed char *end = begin + id;
-          for (signed char *p = begin + 1; p != end; p++) {
-            signed char status = *p;
-            if (status)
-              assert (status < 0);
-            else
-              *p = 1;
-          }
-          assert (!statistics.original.cnf.added);
-          statistics.original.cnf.added = id - 1;
-        }
-      }
-      assert (EMPTY (parsed_literals));
-      bool first = true;
-      int last = id;
-      assert (last);
-      while (last) {
-        int sign;
-        if (first)
-          first = false;
-        else
+      ch = read_char ();
+      if (ch == 'd') {
+        ch = read_char ();
+        if (ch != ' ')
+          prr ("expected space after '%d d' in deletion %d", id, id);
+        assert (EMPTY (parsed_antecedents));
+        int last = 0;
+        do {
           ch = read_char ();
-        if (ch == '-') {
-          if (!ISDIGIT (ch = read_char ()))
-            prr ("expected digit after '%d -' in clause %d", last, id);
-          if (ch == '0')
-            prr ("expected non-zero digit after '%d -'", last);
-          sign = -1;
-        } else if (!ISDIGIT (ch))
-          prr ("expected literal or '0' after '%d ' in clause %d", last,
-               id);
-        else
-          sign = 1;
-        int idx = ch - '0';
-        while (ISDIGIT (ch = read_char ())) {
-          if (!idx)
-            prr ("unexpected second '%c' after '%d 0' in clause %d", ch,
-                 last, id);
-          if (INT_MAX / 10 < idx) {
-          VARIABLE_INDEX_EXCEEDS_INT_MAX:
-            if (sign < 0)
-              prr ("variable index in literal '-%s' "
-                   "exceeds 'INT_MAX' in clause %d",
-                   exceeds_int_max (idx, ch), id);
+          if (!ISDIGIT (ch)) {
+            if (last)
+              prr ("expected digit after '%d ' in deletion %d", last, id);
             else
-              prr ("variable index '%s' exceeds 'INT_MAX' in clause %d",
-                   exceeds_int_max (idx, ch), id);
+              prr ("expected digit after '%d d ' in deletion %d", id, id);
           }
-          idx *= 10;
-          int digit = ch - '0';
-          if (INT_MAX - digit < idx) {
-            idx /= 10;
-            goto VARIABLE_INDEX_EXCEEDS_INT_MAX;
-          }
-          idx += digit;
-        }
-        int lit = sign * idx;
-        if (ch != ' ') {
-          if (idx)
-            prr ("expected space after literal '%d' in clause %d", lit, id);
-          else
-            prr ("expected space after literals and '0' in clause %d", id);
-        }
-        PUSH (parsed_literals, lit);
-        last = lit;
-      }
-      dbgs (parsed_literals.begin, "clause %d literals", id);
-
-      size_t size_literals = SIZE (parsed_literals);
-      size_t bytes_literals = size_literals * sizeof (int);
-      int *l = malloc (bytes_literals);
-      if (!l) {
-        assert (size_literals);
-        die ("out-of-memory allocating literals of size %zu clause %d",
-             size_literals - 1, id);
-      }
-      memcpy (l, parsed_literals.begin, bytes_literals);
-      ADJUST (clauses.literals, id);
-      ACCESS (clauses.literals, id) = l;
-      if (size_literals == 1) {
-        if (!empty_clause) {
-          vrb ("found empty clause %d", id);
-          statistics.clauses.checked.empty++;
-          empty_clause = id;
-        }
-      }
-
-      CLEAR (parsed_literals);
-      assert (EMPTY (parsed_antecedents));
-
-      assert (!last);
-      do {
-        int sign;
-        if ((ch = read_char ()) == '-') {
-          if (!ISDIGIT (ch = read_char ()))
-            prr ("expected digit after '%d -' in clause %d", last, id);
-          if (ch == '0')
-            prr ("expected non-zero digit after '%d -'", last);
-          sign = -1;
-        } else if (!ISDIGIT (ch))
-          prr ("expected clause identifier after '%d ' "
-               "in clause %d",
-               last, id);
-        else
-          sign = 1;
-        int other = ch - '0';
-        while (ISDIGIT (ch = read_char ())) {
-          if (!other)
-            prr ("unexpected second '%c' after '%d 0' in clause %d", ch,
-                 last, id);
-          if (INT_MAX / 10 < other) {
-          ANTECEDENT_IDENTIFIER_EXCEEDS_INT_MAX:
-            if (sign < 0)
-              prr ("antecedent '-%s' exceeds 'INT_MAX' in clause %d",
+          int other = ch - '0';
+          while (ISDIGIT ((ch = read_char ()))) {
+            if (!other)
+              prr ("unexpected digit '%c' after '0' in deletion %d", ch,
+                   id);
+            if (INT_MAX / 10 < other)
+            DELETED_CLAUSE_IDENTIFIER_EXCEEDS_INT_MAX:
+              prr ("deleted clause identifier '%s' exceeds 'INT_MAX' "
+                   "in deletion %d",
                    exceeds_int_max (other, ch), id);
-            else
-              prr ("antecedent '%s' exceeds 'INT_MAX' in clause %d",
-                   exceeds_int_max (other, ch), id);
+            other *= 10;
+            int digit = ch - '0';
+            if (INT_MAX - digit < other) {
+              other /= 10;
+              goto DELETED_CLAUSE_IDENTIFIER_EXCEEDS_INT_MAX;
+            }
+            other += digit;
           }
-          other *= 10;
-          int digit = ch - '0';
-          if (INT_MAX - digit < other) {
-            other /= 10;
-            goto ANTECEDENT_IDENTIFIER_EXCEEDS_INT_MAX;
-          }
-          other += digit;
-        }
-        int signed_other = sign * other;
-        if (other) {
-          if (ch != ' ')
-            prr ("expected space after antecedent '%d' in clause %d",
-                 signed_other, id);
-          if (other >= id)
-            prr ("antecedent '%d' in clause %d exceeds clause",
-                 signed_other, id);
-          signed char status = ACCESS (clauses.status, other);
-          if (!status)
-            prr ("antecedent '%d' in clause %d "
-                 "is neither an original clause nor has been added",
-                 signed_other, id);
-          else if (status < 0) {
-            if (track) {
-              struct deletion *other_deletion =
-                  &ACCESS (clauses.deleted, other);
-              assert (other_deletion->id);
-              assert (other_deletion->line);
-              prr ("antecedent %d in clause %d "
-                   "was already deleted in deletion %d at line %zu",
-                   signed_other, id, other_deletion->id,
-                   other_deletion->line);
-            } else
-              prr ("antecedent %d in clause %d was already deleted before "
-                   "(run with '--track' for more information)",
+          if (other) {
+            if (ch != ' ')
+              prr ("expected space after '%d' in deletion %d", other, id);
+            if (id && other > id)
+              prr ("deleted clause '%d' "
+                   "larger than deletion identifier '%d'",
                    other, id);
+          } else if (ch != '\n')
+            prr ("expected new-line after '0' at end of deletion %d", id);
+          delete_antecedent (other, id);
+          last = other;
+        } while (last);
+#if !defined(NDEBUG) || defined(LOGGING)
+        dbgs (parsed_antecedents.begin,
+              "parsed deletion %d and deleted clauses", id);
+        CLEAR (parsed_antecedents);
+#endif
+      } else {
+        if (id == last_id)
+          prr ("line identifier '%d' of addition line does not increase",
+               id);
+        if (!first_clause_added_in_proof) {
+          if (last_clause_added_in_cnf) {
+            if (last_clause_added_in_cnf == id)
+              prr ("first added clause %d in proof "
+                   "has same identifier as last original clause",
+                   id);
+            else if (last_clause_added_in_cnf > id)
+              prr ("first added clause %d in proof "
+                   "has smaller identifier as last original clause %d",
+                   id, last_clause_added_in_cnf);
           }
-        } else {
-          if (ch != '\n')
-            prr ("expected new-line after '0' at end of clause %d", id);
+          vrb ("adding first clause %d in proof", id);
+          first_clause_added_in_proof = id;
+          if (!last_clause_added_in_cnf) {
+            signed char *begin = clauses.status.begin;
+            signed char *end = begin + id;
+            for (signed char *p = begin + 1; p != end; p++) {
+              signed char status = *p;
+              if (status)
+                assert (status < 0);
+              else
+                *p = 1;
+            }
+            assert (!statistics.original.cnf.added);
+            statistics.original.cnf.added = id - 1;
+          }
         }
-        PUSH (parsed_antecedents, signed_other);
-        last = signed_other;
-      } while (last);
-      dbgs (parsed_antecedents.begin, "clause %d antecedents", id);
-      size_t size_antecedents = SIZE (parsed_antecedents);
-      assert (size_antecedents > 0);
-      if (track) {
-        ADJUST (clauses.added, id);
-        struct addition *addition = &ACCESS (clauses.added, id);
-        addition->line = line;
-      }
-      statistics.original.proof.added++;
-      if (checking && forward) {
-        check_clause (id, l, parsed_antecedents.begin);
-        dbg ("forward checked clause %d", id);
-      } else if (trimming || checking) {
-        size_t bytes_antecedents = size_antecedents * sizeof (int);
-        int *a = malloc (bytes_antecedents);
-        if (!a) {
-          assert (size_antecedents);
-          die ("out-of-memory allocating antecedents of size %zu clause %d",
-               size_antecedents - 1, id);
+        assert (EMPTY (parsed_literals));
+        bool first = true;
+        int last = id;
+        assert (last);
+        while (last) {
+          int sign;
+          if (first)
+            first = false;
+          else
+            ch = read_char ();
+          if (ch == '-') {
+            if (!ISDIGIT (ch = read_char ()))
+              prr ("expected digit after '%d -' in clause %d", last, id);
+            if (ch == '0')
+              prr ("expected non-zero digit after '%d -'", last);
+            sign = -1;
+          } else if (!ISDIGIT (ch))
+            prr ("expected literal or '0' after '%d ' in clause %d", last,
+                 id);
+          else
+            sign = 1;
+          int idx = ch - '0';
+          while (ISDIGIT (ch = read_char ())) {
+            if (!idx)
+              prr ("unexpected second '%c' after '%d 0' in clause %d", ch,
+                   last, id);
+            if (INT_MAX / 10 < idx) {
+            VARIABLE_INDEX_EXCEEDS_INT_MAX:
+              if (sign < 0)
+                prr ("variable index in literal '-%s' "
+                     "exceeds 'INT_MAX' in clause %d",
+                     exceeds_int_max (idx, ch), id);
+              else
+                prr ("variable index '%s' exceeds 'INT_MAX' in clause %d",
+                     exceeds_int_max (idx, ch), id);
+            }
+            idx *= 10;
+            int digit = ch - '0';
+            if (INT_MAX - digit < idx) {
+              idx /= 10;
+              goto VARIABLE_INDEX_EXCEEDS_INT_MAX;
+            }
+            idx += digit;
+          }
+          int lit = sign * idx;
+          if (ch != ' ') {
+            if (idx)
+              prr ("expected space after literal '%d' in clause %d", lit,
+                   id);
+            else
+              prr ("expected space after literals and '0' in clause %d",
+                   id);
+          }
+          PUSH (parsed_literals, lit);
+          last = lit;
         }
-        memcpy (a, parsed_antecedents.begin, bytes_antecedents);
-        ADJUST (clauses.antecedents, id);
-        ACCESS (clauses.antecedents, id) = a;
+        dbgs (parsed_literals.begin, "clause %d literals", id);
+
+        size_t size_literals = SIZE (parsed_literals);
+        size_t bytes_literals = size_literals * sizeof (int);
+        int *l = malloc (bytes_literals);
+        if (!l) {
+          assert (size_literals);
+          die ("out-of-memory allocating literals of size %zu clause %d",
+               size_literals - 1, id);
+        }
+        memcpy (l, parsed_literals.begin, bytes_literals);
+        ADJUST (clauses.literals, id);
+        ACCESS (clauses.literals, id) = l;
+        if (size_literals == 1) {
+          if (!empty_clause) {
+            vrb ("found empty clause %d", id);
+            statistics.clauses.checked.empty++;
+            empty_clause = id;
+          }
+        }
+
+        CLEAR (parsed_literals);
+        assert (EMPTY (parsed_antecedents));
+
+        assert (!last);
+        do {
+          int sign;
+          if ((ch = read_char ()) == '-') {
+            if (!ISDIGIT (ch = read_char ()))
+              prr ("expected digit after '%d -' in clause %d", last, id);
+            if (ch == '0')
+              prr ("expected non-zero digit after '%d -'", last);
+            sign = -1;
+          } else if (!ISDIGIT (ch))
+            prr ("expected clause identifier after '%d ' "
+                 "in clause %d",
+                 last, id);
+          else
+            sign = 1;
+          int other = ch - '0';
+          while (ISDIGIT (ch = read_char ())) {
+            if (!other)
+              prr ("unexpected second '%c' after '%d 0' in clause %d", ch,
+                   last, id);
+            if (INT_MAX / 10 < other) {
+            ANTECEDENT_IDENTIFIER_EXCEEDS_INT_MAX:
+              if (sign < 0)
+                prr ("antecedent '-%s' exceeds 'INT_MAX' in clause %d",
+                     exceeds_int_max (other, ch), id);
+              else
+                prr ("antecedent '%s' exceeds 'INT_MAX' in clause %d",
+                     exceeds_int_max (other, ch), id);
+            }
+            other *= 10;
+            int digit = ch - '0';
+            if (INT_MAX - digit < other) {
+              other /= 10;
+              goto ANTECEDENT_IDENTIFIER_EXCEEDS_INT_MAX;
+            }
+            other += digit;
+          }
+          int signed_other = sign * other;
+          if (other) {
+            if (ch != ' ')
+              prr ("expected space after antecedent '%d' in clause %d",
+                   signed_other, id);
+            if (other >= id)
+              prr ("antecedent '%d' in clause %d exceeds clause",
+                   signed_other, id);
+            signed char status = ACCESS (clauses.status, other);
+            if (!status)
+              prr ("antecedent '%d' in clause %d "
+                   "is neither an original clause nor has been added",
+                   signed_other, id);
+            else if (status < 0) {
+              if (track) {
+                struct deletion *other_deletion =
+                    &ACCESS (clauses.deleted, other);
+                assert (other_deletion->id);
+                assert (other_deletion->line);
+                prr ("antecedent %d in clause %d "
+                     "was already deleted in deletion %d at line %zu",
+                     signed_other, id, other_deletion->id,
+                     other_deletion->line);
+              } else
+                prr (
+                    "antecedent %d in clause %d was already deleted before "
+                    "(run with '--track' for more information)",
+                    other, id);
+            }
+          } else {
+            if (ch != '\n')
+              prr ("expected new-line after '0' at end of clause %d", id);
+          }
+          PUSH (parsed_antecedents, signed_other);
+          last = signed_other;
+        } while (last);
+        dbgs (parsed_antecedents.begin, "clause %d antecedents", id);
+        size_t size_antecedents = SIZE (parsed_antecedents);
+        assert (size_antecedents > 0);
+        if (track) {
+          ADJUST (clauses.added, id);
+          struct addition *addition = &ACCESS (clauses.added, id);
+          addition->line = line;
+        }
+        statistics.original.proof.added++;
+        if (checking && forward) {
+          check_clause (id, l, parsed_antecedents.begin);
+          dbg ("forward checked clause %d", id);
+        } else if (trimming || checking) {
+          size_t bytes_antecedents = size_antecedents * sizeof (int);
+          int *a = malloc (bytes_antecedents);
+          if (!a) {
+            assert (size_antecedents);
+            die ("out-of-memory allocating antecedents of size %zu clause "
+                 "%d",
+                 size_antecedents - 1, id);
+          }
+          memcpy (a, parsed_antecedents.begin, bytes_antecedents);
+          ADJUST (clauses.antecedents, id);
+          ACCESS (clauses.antecedents, id) = a;
+        }
+        CLEAR (parsed_antecedents);
+        ACCESS (clauses.status, id) = 1;
       }
-      CLEAR (parsed_antecedents);
-      ACCESS (clauses.status, id) = 1;
     }
     last_id = id;
     ch = read_char ();
@@ -1502,7 +1528,8 @@ static void parse_proof () {
 
   double end = process_time (), duration = end - start;
   vrb ("finished parsing proof after %.2f seconds", end);
-  msg ("parsing original proof took %.2f seconds and needed %.0f MB memory",
+  msg ("parsing original proof took %.2f seconds and needed %.0f MB "
+       "memory",
        duration, mega_bytes ());
 }
 
@@ -2009,8 +2036,8 @@ static void open_input_files () {
   }
 
   // No CNF output without proof output: this is a restriction due to the
-  // way we specify files but would also make the internal logic of running
-  // the various functions in different mode pretty complex.
+  // way we specify files but would also make the internal logic of
+  // running the various functions in different mode pretty complex.
   //
   assert (!cnf.output || proof.output);
 
