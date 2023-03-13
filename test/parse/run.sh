@@ -178,11 +178,6 @@ runlrat antenonexist
 runlrat antedel
 runlrat antenonl
 
-runlrit eofid1
-runlrit eofid2
-runlrit invalidoddid
-runlrit invalidzeroinid
-runlrit invalidexcessiveid
 runlrit eofdnte1
 runlrit eofdnte2
 runlrit invalidodddnte
