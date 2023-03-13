@@ -1274,21 +1274,23 @@ static void parse_proof () {
           ch = read_char ();
           if (ch == EOF)
             prr ("end-of-file before zero byte in 'd' line");
+	  if (ch & 1)
+	    prr ("invalid odd antecedent in 'd' line");
           if (ch) {
             unsigned uid = 0, shift = 0;
             for (;;) {
               unsigned char uch = ch;
               if (shift == 28 && (uch & ~15u))
-                prr ("excessive antecedent identifier in 'd' line");
+                prr ("excessive antecedent in 'd' line");
               uid = (uch & 127) << shift;
               if (!(uch & 128))
                 break;
               shift += 7;
               ch = read_char ();
               if (!ch)
-                prr ("invalid trailing zero byte in antecedent identifier");
+                prr ("invalid trailing zero byte in antecedent");
               if (ch == EOF)
-                prr ("end-of-file parsing antecedent identifier");
+                prr ("end-of-file parsing antecedent in 'd' line");
             }
             other = (uid >> 1);
           } else

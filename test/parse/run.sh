@@ -185,6 +185,8 @@ runlrit invalidzeroinid
 runlrit invalidexcessiveid
 runlrit eofdnte1
 runlrit eofdnte2
+runlrit invalidodddnte
+runlrit invalidzeroindnte
 runlrit invalidexcessivednte
 
 lritruns=`grep '^runlrit [a-z]' run.sh|wc -l`
