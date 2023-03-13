@@ -120,21 +120,8 @@ struct ints_map {
   int **begin, **end;
 };
 
-struct addition {
-  size_t info;
-};
-
-struct deletion {
-  size_t info;
-  int id;
-};
-
-struct addition_map {
-  struct addition *begin, *end;
-};
-
-struct deletion_map {
-  struct deletion *begin, *end;
+struct size_t_map {
+  size_t *begin, *end;
 };
 
 struct statistics {
@@ -187,7 +174,6 @@ static int verbosity;
 static bool checking;
 static bool trimming;
 static bool relax;
-static bool trick;
 
 static int empty_clause;
 static int last_clause_added_in_cnf;
@@ -204,8 +190,8 @@ static struct {
   struct char_map status;
   struct ints_map literals;
   struct ints_map antecedents;
-  struct deletion_map deleted;
-  struct addition_map added;
+  struct size_t_map deleted;
+  struct size_t_map added;
   struct int_map referenced;
   struct int_map heads;
   struct int_map links;
@@ -755,9 +741,8 @@ static void crr (int id, const char *fmt, ...) {
   va_end (ap);
   fprintf (stderr, " while checking clause '%d'", id);
   if (track) {
-    struct addition *addition = &ACCESS (clauses.added, id);
-    fprintf (stderr, " at %s '%zu' ", trick ? "byte" : "line",
-             addition->info);
+    size_t *addition = &ACCESS (clauses.added, id);
+    fprintf (stderr, " at line '%zu' ", *addition);
     assert (proof.input);
     assert (proof.input->path);
     fprintf (stderr, "in '%s'", proof.input->path);
@@ -1070,7 +1055,7 @@ static size_t ignored_deletions = 0;
 static struct int_stack parsed_literals;
 static struct int_stack parsed_antecedents;
 
-static void delete_antecedent (int other, int id, size_t info) {
+static void delete_antecedent (int other, bool binary, size_t info) {
   if (!first_clause_added_in_proof)
     ADJUST (clauses.status, other);
 
@@ -1078,7 +1063,7 @@ static void delete_antecedent (int other, int id, size_t info) {
   signed char status = *status_ptr;
   *status_ptr = -1;
 
-  struct deletion *other_deletion = 0;
+  size_t *other_deletion = 0;
 
   // Allocate deletion tracking information if needed.
 
@@ -1098,40 +1083,36 @@ static void delete_antecedent (int other, int id, size_t info) {
     else if (relax)
       ignored_deletions++;
     else
-      prr ("deleted clause '%d' in deletion %d "
+      prr ("deleted clause '%d' in deletion at %s %zu"
            "is neither an original clause nor has been added "
            "(use '--relax' to ignore such deletions)",
-           other, id);
+           other, binary ? "byte" : "line", info);
 
   } else if (status < 0) { // Already deleted.
 
     if (relax)
       ignored_deletions++;
     else if (track) {
-      assert (other_deletion->id);
-      assert (other_deletion->info);
-      prr ("clause %d requested to be deleted in deletion %d "
+      assert (*other_deletion);
+      prr ("clause %d requested to be deleted in deletion"
            "was already deleted in deletion %d at %s %zu "
            "(use '--relax' to ignore such deletions)",
-           other, id, other_deletion->id, trick ? "byte" : "line",
-           other_deletion->info);
+           other, binary ? "byte" : "line", *other_deletion);
     } else
-      prr ("clause %d requested to be deleted in deletion %d "
-           "was already deleted before "
+      prr ("clause %d requested to be deleted in deletion "
+           "at %s %zu was already deleted before "
            "(use '--relax' to ignore such deletions and "
            " with '--track' for more information)",
-           other, id);
+           other, binary ? "byte" : "line", info);
   }
 
   // Deletion tracking information needs to be set if tracking is
   // requested and the clause was never added or got now deleted.
 
   if (track && status >= 0) {
-    dbg ("marked clause %d to be deleted "
-         "at %s %zu in deletion %d",
-         other, trick ? "byte" : "line", info + 1, id);
-    other_deletion->info = info + 1;
-    other_deletion->id = id;
+    dbg ("marked clause %d to be deleted at %s %zu in deletion", other,
+         info, binary ? "byte" : "line");
+    *other_deletion = info;
   }
 
   if (status >= 0) {
@@ -1197,15 +1178,16 @@ static void parse_proof () {
 
   // To track in the binary proof format we use byte offsets instead of line
   // numbers.  This information is used in debugging and error messages and
-  // 'trick' is used to tell this difference (using 'byte' vs. 'line').
+  // 'trick' is used to tell this difference (using 'byte' vs. 'line').  For
+  // the binary format we also do not have deletion line identifiers.
 
-  const bool binary = trick = input.binary;
+  const bool binary = input.binary;
 
   int last_id = 0;
 
   while (ch != EOF) {
 
-    const size_t info = trick ? input.bytes : input.lines;
+    const size_t info = (binary ? input.bytes : input.lines) + 1;
     int id, type = 0;
 
     if (binary) {
@@ -1283,25 +1265,24 @@ static void parse_proof () {
         if (binary) {
           ch = read_char ();
           if (ch == EOF)
-            prr ("end-of-file before zero byte in deletion %d", id);
+            prr ("end-of-file before zero byte in deletion");
           if (ch & 1)
-            prr ("invalid negative antecedent in deletion %d", id);
+            prr ("invalid negative antecedent in deletion");
           if (ch) {
             unsigned uother = 0, shift = 0;
             for (;;) {
               unsigned char uch = ch;
               if (shift == 28 && (uch & ~15u))
-                prr ("excessive antecedent in deletion %d", id);
+                prr ("excessive antecedent in deletion");
               uother = (uch & 127) << shift;
               if (!(uch & 128))
                 break;
               shift += 7;
               ch = read_char ();
               if (!ch)
-                prr ("invalid trailing zero byte in antecedent deletion %d",
-                     id);
+                prr ("invalid trailing zero byte in antecedent deletion");
               if (ch == EOF)
-                prr ("end-of-file parsing antecedent in deletion %d", id);
+                prr ("end-of-file parsing antecedent in deletion");
             }
             other = (uother >> 1);
           } else
@@ -1343,12 +1324,12 @@ static void parse_proof () {
             prr ("expected new-line after '0' at end of deletion %d", id);
         }
         if (other)
-          delete_antecedent (other, id, info);
+          delete_antecedent (other, id, binary, info);
         last = other;
       } while (last);
 #if !defined(NDEBUG) || defined(LOGGING)
       dbgs (parsed_antecedents.begin,
-            "parsed deletion %d and deleted clauses", id);
+            "parsed deletion and deleted clauses");
       CLEAR (parsed_antecedents);
 #endif
     } else {
@@ -1514,7 +1495,7 @@ static void parse_proof () {
             shift += 7;
             ch = read_char ();
             if (!ch)
-              prr ("invalid trailing zero byte in deletion %d", id);
+              prr ("invalid trailing zero byte in clause %d", id);
             if (ch == EOF)
               prr ("end-of-file parsing antecedent in clause %d", id);
           }
@@ -1582,9 +1563,9 @@ static void parse_proof () {
                 assert (other_deletion->id);
                 assert (other_deletion->info);
                 prr ("antecedent %d in clause %d "
-                     "was already deleted in deletion %d at %s %zu",
+                     "was already deleted in deletion %d at line %zu",
                      signed_other, id, other_deletion->id,
-                     trick ? "byte" : "line", other_deletion->info);
+                     other_deletion->info);
               } else
                 prr (
                     "antecedent %d in clause %d was already deleted before "
@@ -1605,7 +1586,7 @@ static void parse_proof () {
       if (track) {
         ADJUST (clauses.added, id);
         struct addition *addition = &ACCESS (clauses.added, id);
-        addition->info = info + 1;
+        addition->info = info;
       }
       statistics.original.proof.added++;
       if (checking && forward) {
