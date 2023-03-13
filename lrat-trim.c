@@ -534,10 +534,8 @@ static inline void count_read (int ch) __attribute__ ((always_inline));
 static inline int read_char (void) __attribute__ ((always_inline));
 
 static inline int read_buffer (void) {
-  if (buffer.pos == buffer.end && !fill_buffer ()) {
-    input.eof = true;
+  if (buffer.pos == buffer.end && !fill_buffer ())
     return EOF;
-  }
   return buffer.chars[buffer.pos++];
 }
 
@@ -554,8 +552,12 @@ static inline int read_char (void) {
   assert (input.file);
   assert (input.saved == EOF);
   int res = read_buffer ();
+  if (res == EOF)
+    input.eof = true;
   if (res == '\r') {
     res = read_buffer ();
+    if (res == EOF)
+      input.eof = true;
     if (res != '\n')
       prr ("carriage-return without following new-line");
   }
