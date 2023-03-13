@@ -900,7 +900,7 @@ static void parse_cnf () {
     else
       while ((ch = read_char ()) != '\n')
         if (ch == EOF)
-          prr ("unexpected end-of-file in comment before header");
+          prr ("end-of-file in comment before header");
   if (read_char () != ' ')
     prr ("expected space after 'p'");
   if (read_char () != 'c' || read_char () != 'n' || read_char () != 'f')
@@ -975,7 +975,7 @@ static void parse_cnf () {
     SKIP_COMMENT_AFTER_HEADER:
       while ((ch = read_char ()) != '\n')
         if (ch == EOF)
-          prr ("unexpected end-of-file in comment after header");
+          prr ("end-of-file in comment after header");
       continue;
     }
     int sign;
@@ -1208,7 +1208,7 @@ static void parse_proof () {
       type = ch;
       ch = read_char ();
       if (ch == EOF)
-        prr ("unexpected end-of-file after '%c'", type);
+        prr ("end-of-file after '%c'", type);
       if (ch & 1)
         prr ("invalid odd clause identifier");
       if (ch) {
@@ -1225,7 +1225,7 @@ static void parse_proof () {
           if (!ch)
             prr ("invalid trailing zero byte in clause identifier");
           if (ch == EOF)
-            prr ("unexpected end-of-file parsing clause identifier");
+            prr ("end-of-file parsing clause identifier");
         }
         id = (uid >> 1);
       } else
@@ -1272,66 +1272,66 @@ static void parse_proof () {
         int other;
         if (binary) {
           ch = read_char ();
-	if (ch == EOF)
-	  prr ("unexpected end-of-file before zero byte in 'd' line");
-	if (ch) {
-	  unsigned uid = 0, shift = 0;
-	  for (;;) {
-	    unsigned char uch = ch;
-	    if (shift == 28 && (uch & ~15u))
-	      prr ("invalid excessive antecedent identifier in 'd' line");
-	    uid = (uch & 127) << shift;
-	    if (!(uch & 128))
-	      break;
-	    shift += 7;
-	    ch = read_char ();
-	    if (!ch)
-	      prr ("invalid trailing zero byte in antecedent identifier");
-	    if (ch == EOF)
-	      prr ("unexpected end-of-file parsing antecedent identifier");
-	  }
-	  other = (uid >> 1);
-	} else
-	  other = 0;
-      } else {
-	ch = read_char ();
-	if (!ISDIGIT (ch)) {
-	  if (last)
-	    prr ("expected digit after '%d ' in deletion %d", last, id);
-	  else
-	    prr ("expected digit after '%d d ' in deletion %d", id, id);
-	}
-	other = ch - '0';
-	while (ISDIGIT ((ch = read_char ()))) {
-	  if (!other)
-	    prr ("unexpected digit '%c' after '0' in deletion %d", ch,
-		 id);
-	  if (INT_MAX / 10 < other)
-	  DELETED_CLAUSE_IDENTIFIER_EXCEEDS_INT_MAX:
-	    prr ("deleted clause identifier '%s' exceeds 'INT_MAX' "
-		 "in deletion %d",
-		 exceeds_int_max (other, ch), id);
-	  other *= 10;
-	  int digit = ch - '0';
-	  if (INT_MAX - digit < other) {
-	    other /= 10;
-	    goto DELETED_CLAUSE_IDENTIFIER_EXCEEDS_INT_MAX;
-	  }
-	  other += digit;
-	}
-	if (other) {
-	  if (ch != ' ')
-	    prr ("expected space after '%d' in deletion %d", other, id);
-	  if (id && other > id)
-	    prr ("deleted clause '%d' "
-		 "larger than deletion identifier '%d'",
-		 other, id);
-	} else if (ch != '\n')
-	  prr ("expected new-line after '0' at end of deletion %d", id);
-      }
-      if (other)
-	delete_antecedent (other, id);
-      last = other;
+          if (ch == EOF)
+            prr ("end-of-file before zero byte in 'd' line");
+          if (ch) {
+            unsigned uid = 0, shift = 0;
+            for (;;) {
+              unsigned char uch = ch;
+              if (shift == 28 && (uch & ~15u))
+                prr ("invalid excessive antecedent identifier in 'd' line");
+              uid = (uch & 127) << shift;
+              if (!(uch & 128))
+                break;
+              shift += 7;
+              ch = read_char ();
+              if (!ch)
+                prr ("invalid trailing zero byte in antecedent identifier");
+              if (ch == EOF)
+                prr ("end-of-file parsing antecedent identifier");
+            }
+            other = (uid >> 1);
+          } else
+            other = 0;
+        } else {
+          ch = read_char ();
+          if (!ISDIGIT (ch)) {
+            if (last)
+              prr ("expected digit after '%d ' in deletion %d", last, id);
+            else
+              prr ("expected digit after '%d d ' in deletion %d", id, id);
+          }
+          other = ch - '0';
+          while (ISDIGIT ((ch = read_char ()))) {
+            if (!other)
+              prr ("unexpected digit '%c' after '0' in deletion %d", ch,
+                   id);
+            if (INT_MAX / 10 < other)
+            DELETED_CLAUSE_IDENTIFIER_EXCEEDS_INT_MAX:
+              prr ("deleted clause identifier '%s' exceeds 'INT_MAX' "
+                   "in deletion %d",
+                   exceeds_int_max (other, ch), id);
+            other *= 10;
+            int digit = ch - '0';
+            if (INT_MAX - digit < other) {
+              other /= 10;
+              goto DELETED_CLAUSE_IDENTIFIER_EXCEEDS_INT_MAX;
+            }
+            other += digit;
+          }
+          if (other) {
+            if (ch != ' ')
+              prr ("expected space after '%d' in deletion %d", other, id);
+            if (id && other > id)
+              prr ("deleted clause '%d' "
+                   "larger than deletion identifier '%d'",
+                   other, id);
+          } else if (ch != '\n')
+            prr ("expected new-line after '0' at end of deletion %d", id);
+        }
+        if (other)
+          delete_antecedent (other, id);
+        last = other;
       } while (last);
 #if !defined(NDEBUG) || defined(LOGGING)
       dbgs (parsed_antecedents.begin,
