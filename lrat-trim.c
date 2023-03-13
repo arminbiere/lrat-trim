@@ -1129,8 +1129,8 @@ static void delete_antecedent (int other, int id, size_t info) {
   if (track && status >= 0) {
     dbg ("marked clause %d to be deleted "
          "at %s %zu in deletion %d",
-         other, trick ? "byte" : "line", info+1, id);
-    other_deletion->info = info+1;
+         other, trick ? "byte" : "line", info + 1, id);
+    other_deletion->info = info + 1;
     other_deletion->id = id;
   }
 
@@ -1213,31 +1213,34 @@ static void parse_proof () {
       if (ch != 'a' && ch != 'd')
         prr ("expected either 'a' or 'd'");
       type = ch;
-      ch = read_char ();
-      if (ch == EOF)
-        prr ("end-of-file after '%c'", type);
-      if (ch & 1)
-        prr ("invalid negative clause identifier");
-      if (ch) {
-        unsigned uid = 0, shift = 0;
-        for (;;) {
-          unsigned char uch = ch;
-          if (shift == 28 && (uch & ~15u))
-            prr ("excessive clause identifier");
-          uid = (uch & 127) << shift;
-          if (!(uch & 128))
-            break;
-          shift += 7;
-          ch = read_char ();
-          if (!ch)
-            prr ("invalid trailing zero byte in clause identifier");
-          if (ch == EOF)
-            prr ("end-of-file parsing clause identifier");
-        }
-        id = (uid >> 1);
+      if (ch == 'a') {
+        ch = read_char ();
+        if (ch == EOF)
+          prr ("end-of-file after '%c'", type);
+        if (ch & 1)
+          prr ("invalid negative clause identifier");
+        if (ch) {
+          unsigned uid = 0, shift = 0;
+          for (;;) {
+            unsigned char uch = ch;
+            if (shift == 28 && (uch & ~15u))
+              prr ("excessive clause identifier");
+            uid = (uch & 127) << shift;
+            if (!(uch & 128))
+              break;
+            shift += 7;
+            ch = read_char ();
+            if (!ch)
+              prr ("invalid trailing zero byte in clause identifier");
+            if (ch == EOF)
+              prr ("end-of-file parsing clause identifier");
+          }
+          id = (uid >> 1);
+        } else
+          id = 0;
+        dbg ("parsed clause identifier %d at line byte", id);
       } else
-        id = 0;
-      dbg ("parsed clause identifier %d at line byte", id);
+        id = last_id;
     } else {
       if (!isdigit (ch))
         prr ("expected digit as first character of line");
@@ -1511,7 +1514,7 @@ static void parse_proof () {
             shift += 7;
             ch = read_char ();
             if (!ch)
-              prr ("invalid trailing zero byte in clause deletion %d", id);
+              prr ("invalid trailing zero byte in deletion %d", id);
             if (ch == EOF)
               prr ("end-of-file parsing antecedent in clause %d", id);
           }
@@ -1602,7 +1605,7 @@ static void parse_proof () {
       if (track) {
         ADJUST (clauses.added, id);
         struct addition *addition = &ACCESS (clauses.added, id);
-        addition->info = info  + 1;
+        addition->info = info + 1;
       }
       statistics.original.proof.added++;
       if (checking && forward) {
