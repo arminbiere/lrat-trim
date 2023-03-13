@@ -1273,24 +1273,25 @@ static void parse_proof () {
         if (binary) {
           ch = read_char ();
           if (ch == EOF)
-            prr ("end-of-file before zero byte in 'd' line");
-	  if (ch & 1)
-	    prr ("invalid odd antecedent in 'd' line");
+            prr ("end-of-file before zero byte in deletion %d", id);
+          if (ch & 1)
+            prr ("invalid odd antecedent in deletion %d", id);
           if (ch) {
             unsigned uid = 0, shift = 0;
             for (;;) {
               unsigned char uch = ch;
               if (shift == 28 && (uch & ~15u))
-                prr ("excessive antecedent in 'd' line");
+                prr ("excessive antecedent in deletion %d", id);
               uid = (uch & 127) << shift;
               if (!(uch & 128))
                 break;
               shift += 7;
               ch = read_char ();
               if (!ch)
-                prr ("invalid trailing zero byte in antecedent");
+                prr ("invalid trailing zero byte in antecedent deletion %d",
+                     id);
               if (ch == EOF)
-                prr ("end-of-file parsing antecedent in 'd' line");
+                prr ("end-of-file parsing antecedent in deletion %d", id);
             }
             other = (uid >> 1);
           } else
@@ -1371,58 +1372,89 @@ static void parse_proof () {
         }
       }
       assert (EMPTY (parsed_literals));
-      bool first = true;
-      int last = id;
-      assert (last);
-      while (last) {
-        int sign;
-        if (first)
-          first = false;
-        else
+      if (binary) {
+        for (;;) {
           ch = read_char ();
-        if (ch == '-') {
-          if (!ISDIGIT (ch = read_char ()))
-            prr ("expected digit after '%d -' in clause %d", last, id);
-          if (ch == '0')
-            prr ("expected non-zero digit after '%d -'", last);
-          sign = -1;
-        } else if (!ISDIGIT (ch))
-          prr ("expected literal or '0' after '%d ' in clause %d", last,
-               id);
-        else
-          sign = 1;
-        int idx = ch - '0';
-        while (ISDIGIT (ch = read_char ())) {
-          if (!idx)
-            prr ("unexpected second '%c' after '%d 0' in clause %d", ch,
-                 last, id);
-          if (INT_MAX / 10 < idx) {
-          VARIABLE_INDEX_EXCEEDS_INT_MAX:
-            if (sign < 0)
-              prr ("variable index in literal '-%s' "
-                   "exceeds 'INT_MAX' in clause %d",
-                   exceeds_int_max (idx, ch), id);
-            else
-              prr ("variable index '%s' exceeds 'INT_MAX' in clause %d",
-                   exceeds_int_max (idx, ch), id);
+          if (ch == EOF)
+            prr ("end-of-file before zero byte "
+                 "terminating literals in clause %d", id);
+          if (!ch)
+            break;
+          unsigned uidx = 0, shift = 0;
+          for (;;) {
+            unsigned char uch = ch;
+            if (shift == 28 && (uch & ~15u))
+              prr ("excessive literal in clause %d", id);
+            uidx = (uch & 127) << shift;
+            if (!(uch & 128))
+              break;
+            shift += 7;
+            ch = read_char ();
+            if (!ch)
+              prr ("invalid trailing zero byte in literal of clause %d", id);
+            if (ch == EOF)
+              prr ("end-of-file parsing literal in clause %d", id);
           }
-          idx *= 10;
-          int digit = ch - '0';
-          if (INT_MAX - digit < idx) {
-            idx /= 10;
-            goto VARIABLE_INDEX_EXCEEDS_INT_MAX;
-          }
-          idx += digit;
+          int idx = (uidx >> 1);
+          int lit = (uidx & 1) ? -idx : idx;
+          PUSH (parsed_literals, lit);
         }
-        int lit = sign * idx;
-        if (ch != ' ') {
-          if (idx)
-            prr ("expected space after literal '%d' in clause %d", lit, id);
+      } else {
+        int last = id;
+        assert (last);
+        bool first = true;
+        while (last) {
+          int sign;
+          if (first)
+            first = false;
           else
-            prr ("expected space after literals and '0' in clause %d", id);
+            ch = read_char ();
+          if (ch == '-') {
+            if (!ISDIGIT (ch = read_char ()))
+              prr ("expected digit after '%d -' in clause %d", last, id);
+            if (ch == '0')
+              prr ("expected non-zero digit after '%d -'", last);
+            sign = -1;
+          } else if (!ISDIGIT (ch))
+            prr ("expected literal or '0' after '%d ' in clause %d", last,
+                 id);
+          else
+            sign = 1;
+          int idx = ch - '0';
+          while (ISDIGIT (ch = read_char ())) {
+            if (!idx)
+              prr ("unexpected second '%c' after '%d 0' in clause %d", ch,
+                   last, id);
+            if (INT_MAX / 10 < idx) {
+            VARIABLE_INDEX_EXCEEDS_INT_MAX:
+              if (sign < 0)
+                prr ("variable index in literal '-%s' "
+                     "exceeds 'INT_MAX' in clause %d",
+                     exceeds_int_max (idx, ch), id);
+              else
+                prr ("variable index '%s' exceeds 'INT_MAX' in clause %d",
+                     exceeds_int_max (idx, ch), id);
+            }
+            idx *= 10;
+            int digit = ch - '0';
+            if (INT_MAX - digit < idx) {
+              idx /= 10;
+              goto VARIABLE_INDEX_EXCEEDS_INT_MAX;
+            }
+            idx += digit;
+          }
+          int lit = sign * idx;
+          if (ch != ' ') {
+            if (idx)
+              prr ("expected space after literal '%d' in clause %d", lit,
+                   id);
+            else
+              prr ("expected space after literals and '0' in clause %d",
+                   id);
+          }
+          PUSH (parsed_literals, lit);
+          last = lit;
         }
-        PUSH (parsed_literals, lit);
-        last = lit;
       }
       dbgs (parsed_literals.begin, "clause %d literals", id);
 
@@ -1448,6 +1480,7 @@ static void parse_proof () {
       CLEAR (parsed_literals);
       assert (EMPTY (parsed_antecedents));
 
+      int last = 0;
       assert (!last);
       do {
         int sign;
