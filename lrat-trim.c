@@ -232,7 +232,7 @@ static void prr (const char *fmt, ...) {
   assert (input.path);
   if (input.binary) {
     fprintf (stderr,
-             "lrat-trim: parse error in '%s' after reading %zu bytes",
+             "lrat-trim: parse error in '%s' after reading %zu bytes: ",
              input.path, input.bytes);
   } else {
     size_t line = input.lines + 1;
@@ -1197,10 +1197,8 @@ static void parse_proof () {
 
   int last_id = 0;
   size_t line = 0;
-  size_t bytes = 0;
 
   while (ch != EOF) {
-    bytes = input.bytes;
     line = input.lines;
     int id;
     if (binary) {
@@ -1210,27 +1208,28 @@ static void parse_proof () {
 	prr ("expected either 'a' or 'd'");
       int type = ch;
       ch = read_char ();
-      size_t bytes = inputs.bytes;
       if (ch == EOF)
 	prr ("unexpected end-of-file after '%c'", type);
+      if (ch & 1)
+	prr ("invalid odd clause identifier");
       if (ch) {
-	unsigned uid = 0;
-	if (ch & 1)
-	  prr ("invalid odd clause identifier");
+	unsigned uid = 0, shift = 0;
 	for (;;) {
 	  unsigned char uch = ch;
-#define HIGH7 ((~0u) >> 7)
-	  if ((uid & HIGH7))
-	    prr ("invalid clause identifier");
-	  uid = (uid << 7) | (uch & 127);
+	  if (shift == 28 && (uch & ~15u))
+	    prr ("invalid excessive clause identifier");
+	  uid = (uch & 127) << shift;
 	  if (!(uch & 128))
 	    break;
+	  shift += 7;
 	  ch = read_char ();
+	  if (!ch)
+	    prr ("invalid trailing zero byte in clause identifier");
 	  if (ch == EOF)
 	    prr ("unexpected end-of-file parsing clause identifier");
 	}
 	id = (uid >> 1);
-	dbg ("parsed clause identifier %d at line %zu", id, line + 1);
+	dbg ("parsed clause identifier %d at line byte", id);
       } else id = 0;
     } else {
       if (!isdigit (ch))

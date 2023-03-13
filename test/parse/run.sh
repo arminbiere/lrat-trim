@@ -180,6 +180,9 @@ runlrat antenonl
 
 runlrit eofid1
 runlrit eofid2
+runlrit invalidoddid
+runlrit invalidzeroinid
+runlrit invalidexcessiveid
 
 lritruns=`grep '^runlrit [a-z]' run.sh|wc -l`
 lratruns=`grep '^runlrat [a-z]' run.sh|wc -l`
