@@ -183,8 +183,9 @@ runlrit eofid2
 runlrit invalidoddid
 runlrit invalidzeroinid
 runlrit invalidexcessiveid
-runlrit eofante1
-runlrit eofante2
+runlrit eofdnte1
+runlrit eofdnte2
+runlrit invalidexcessivednte
 
 lritruns=`grep '^runlrit [a-z]' run.sh|wc -l`
 lratruns=`grep '^runlrat [a-z]' run.sh|wc -l`

@@ -1216,7 +1216,7 @@ static void parse_proof () {
         for (;;) {
           unsigned char uch = ch;
           if (shift == 28 && (uch & ~15u))
-            prr ("invalid excessive clause identifier");
+            prr ("excessive clause identifier");
           uid = (uch & 127) << shift;
           if (!(uch & 128))
             break;
@@ -1279,7 +1279,7 @@ static void parse_proof () {
             for (;;) {
               unsigned char uch = ch;
               if (shift == 28 && (uch & ~15u))
-                prr ("invalid excessive antecedent identifier in 'd' line");
+                prr ("excessive antecedent identifier in 'd' line");
               uid = (uch & 127) << shift;
               if (!(uch & 128))
                 break;
