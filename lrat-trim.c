@@ -286,10 +286,10 @@ static char pretty_buffer[num_pretty_buffers][size_pretty_buffer];
 static int current_pretty_buffer;
 
 static char *next_pretty_buffer () {
-  char *buffer = pretty_buffer[current_pretty_buffer++];
+  char *res = pretty_buffer[current_pretty_buffer++];
   if (current_pretty_buffer == num_pretty_buffers)
     current_pretty_buffer = 0;
-  return buffer;
+  return res;
 }
 
 static const char *pretty_bytes (size_t bytes) {
@@ -1063,26 +1063,35 @@ static void parse_proof () {
   assert (proof.input);
   input = *proof.input;
   msg ("reading proof from '%s'", input.path);
-  fill_buffer ();
-  int last_id = 0;
+
   int ch = read_first_char ();
+  bool binary;
+  if (ch == 'a' || ch == 'd') {
+    vrb ("first character '%c' indicates binary proof format", ch);
+    binary = true;
+  } else if (isdigit (ch)) {
+    vrb ("first character '%c' indicates ASCII proof format", ch);
+    binary = false;
+  } else if (ch == 'c' || ch == 'p')
+    prr ("unexpected '%c' as first character: "
+         "did you use a CNF instead of a proof file?",
+         ch);
+  else if (isprint (ch))
+    prr ("unexpected first character '%c'", ch);
+  else
+    prr ("unexpected first byte '0x02%x'", (unsigned) ch);
+
+  int last_id = 0;
   struct int_stack parsed_literals;
   struct int_stack parsed_antecedents;
   ZERO (parsed_literals);
   ZERO (parsed_antecedents);
   size_t ignored_deletions = 0;
   size_t line = 0;
-  bool first = true;
+
   while (ch != EOF) {
-    if (!isdigit (ch)) {
-      if (first && (ch == 'c' || ch == 'p'))
-        prr ("unexpected '%c' as first character: "
-             "did you use a CNF instead of a proof file?",
-             ch);
-      else
-        prr ("expected digit as first character of line");
-    }
-    first = false;
+    if (!isdigit (ch))
+      prr ("expected digit as first character of line");
     line = input.lines;
     int id = ch - '0';
     while (ISDIGIT (ch = read_char ())) {
