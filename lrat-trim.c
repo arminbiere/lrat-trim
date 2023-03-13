@@ -1204,6 +1204,12 @@ static void parse_proof () {
     if (binary) {
       id = INT_MAX;
       assert (ch == 'a' || ch == 'd');
+      if (ch != 'a' && ch != 'd')
+	prr ("expected either 'a' or 'd'");
+      int type = ch;
+      ch = read_char ();
+      if (ch == EOF)
+	prr ("unexpected end-of-file after '%c'", type);
     } else {
       if (!isdigit (ch))
         prr ("expected digit as first character of line");
@@ -1225,10 +1231,10 @@ static void parse_proof () {
       }
       if (ch != ' ')
         prr ("expected space after identifier '%d'", id);
+      dbg ("parsed clause identifier %d at line %zu", id, line + 1);
     }
     if (id < last_id)
       prr ("identifier '%d' smaller than last '%d'", id, last_id);
-    dbg ("parsed clause identifier %d at line %zu", id, line + 1);
     ADJUST (clauses.status, id);
     if (binary) {
     } else {
