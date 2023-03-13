@@ -1377,7 +1377,8 @@ static void parse_proof () {
           ch = read_char ();
           if (ch == EOF)
             prr ("end-of-file before zero byte "
-                 "terminating literals in clause %d", id);
+                 "terminating literals in clause %d",
+                 id);
           if (!ch)
             break;
           unsigned uidx = 0, shift = 0;
@@ -1391,7 +1392,8 @@ static void parse_proof () {
             shift += 7;
             ch = read_char ();
             if (!ch)
-              prr ("invalid trailing zero byte in literal of clause %d", id);
+              prr ("invalid trailing zero byte in literal of clause %d",
+                   id);
             if (ch == EOF)
               prr ("end-of-file parsing literal in clause %d", id);
           }
@@ -1480,79 +1482,83 @@ static void parse_proof () {
       CLEAR (parsed_literals);
       assert (EMPTY (parsed_antecedents));
 
-      int last = 0;
-      assert (!last);
-      do {
-        int sign;
-        if ((ch = read_char ()) == '-') {
-          if (!ISDIGIT (ch = read_char ()))
-            prr ("expected digit after '%d -' in clause %d", last, id);
-          if (ch == '0')
-            prr ("expected non-zero digit after '%d -'", last);
-          sign = -1;
-        } else if (!ISDIGIT (ch))
-          prr ("expected clause identifier after '%d ' "
-               "in clause %d",
-               last, id);
-        else
-          sign = 1;
-        int other = ch - '0';
-        while (ISDIGIT (ch = read_char ())) {
-          if (!other)
-            prr ("unexpected second '%c' after '%d 0' in clause %d", ch,
+      if (binary) {
+      } else {
+        int last = 0;
+        assert (!last);
+        do {
+          int sign;
+          if ((ch = read_char ()) == '-') {
+            if (!ISDIGIT (ch = read_char ()))
+              prr ("expected digit after '%d -' in clause %d", last, id);
+            if (ch == '0')
+              prr ("expected non-zero digit after '%d -'", last);
+            sign = -1;
+          } else if (!ISDIGIT (ch))
+            prr ("expected clause identifier after '%d ' "
+                 "in clause %d",
                  last, id);
-          if (INT_MAX / 10 < other) {
-          ANTECEDENT_IDENTIFIER_EXCEEDS_INT_MAX:
-            if (sign < 0)
-              prr ("antecedent '-%s' exceeds 'INT_MAX' in clause %d",
-                   exceeds_int_max (other, ch), id);
-            else
-              prr ("antecedent '%s' exceeds 'INT_MAX' in clause %d",
-                   exceeds_int_max (other, ch), id);
+          else
+            sign = 1;
+          int other = ch - '0';
+          while (ISDIGIT (ch = read_char ())) {
+            if (!other)
+              prr ("unexpected second '%c' after '%d 0' in clause %d", ch,
+                   last, id);
+            if (INT_MAX / 10 < other) {
+            ANTECEDENT_IDENTIFIER_EXCEEDS_INT_MAX:
+              if (sign < 0)
+                prr ("antecedent '-%s' exceeds 'INT_MAX' in clause %d",
+                     exceeds_int_max (other, ch), id);
+              else
+                prr ("antecedent '%s' exceeds 'INT_MAX' in clause %d",
+                     exceeds_int_max (other, ch), id);
+            }
+            other *= 10;
+            int digit = ch - '0';
+            if (INT_MAX - digit < other) {
+              other /= 10;
+              goto ANTECEDENT_IDENTIFIER_EXCEEDS_INT_MAX;
+            }
+            other += digit;
           }
-          other *= 10;
-          int digit = ch - '0';
-          if (INT_MAX - digit < other) {
-            other /= 10;
-            goto ANTECEDENT_IDENTIFIER_EXCEEDS_INT_MAX;
+          int signed_other = sign * other;
+          if (other) {
+            if (ch != ' ')
+              prr ("expected space after antecedent '%d' in clause %d",
+                   signed_other, id);
+            if (other >= id)
+              prr ("antecedent '%d' in clause %d exceeds clause",
+                   signed_other, id);
+            signed char status = ACCESS (clauses.status, other);
+            if (!status)
+              prr ("antecedent '%d' in clause %d "
+                   "is neither an original clause nor has been added",
+                   signed_other, id);
+            else if (status < 0) {
+              if (track) {
+                struct deletion *other_deletion =
+                    &ACCESS (clauses.deleted, other);
+                assert (other_deletion->id);
+                assert (other_deletion->line);
+                prr ("antecedent %d in clause %d "
+                     "was already deleted in deletion %d at line %zu",
+                     signed_other, id, other_deletion->id,
+                     other_deletion->line);
+              } else
+                prr (
+                    "antecedent %d in clause %d was already deleted before "
+                    "(run with '--track' for more information)",
+                    other, id);
+            }
+          } else {
+            if (ch != '\n')
+              prr ("expected new-line after '0' at end of clause %d", id);
           }
-          other += digit;
-        }
-        int signed_other = sign * other;
-        if (other) {
-          if (ch != ' ')
-            prr ("expected space after antecedent '%d' in clause %d",
-                 signed_other, id);
-          if (other >= id)
-            prr ("antecedent '%d' in clause %d exceeds clause",
-                 signed_other, id);
-          signed char status = ACCESS (clauses.status, other);
-          if (!status)
-            prr ("antecedent '%d' in clause %d "
-                 "is neither an original clause nor has been added",
-                 signed_other, id);
-          else if (status < 0) {
-            if (track) {
-              struct deletion *other_deletion =
-                  &ACCESS (clauses.deleted, other);
-              assert (other_deletion->id);
-              assert (other_deletion->line);
-              prr ("antecedent %d in clause %d "
-                   "was already deleted in deletion %d at line %zu",
-                   signed_other, id, other_deletion->id,
-                   other_deletion->line);
-            } else
-              prr ("antecedent %d in clause %d was already deleted before "
-                   "(run with '--track' for more information)",
-                   other, id);
-          }
-        } else {
-          if (ch != '\n')
-            prr ("expected new-line after '0' at end of clause %d", id);
-        }
-        PUSH (parsed_antecedents, signed_other);
-        last = signed_other;
-      } while (last);
+          PUSH (parsed_antecedents, signed_other);
+          last = signed_other;
+        } while (last);
+      }
       dbgs (parsed_antecedents.begin, "clause %d antecedents", id);
       size_t size_antecedents = SIZE (parsed_antecedents);
       assert (size_antecedents > 0);
