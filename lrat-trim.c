@@ -1197,8 +1197,10 @@ static void parse_proof () {
 
   int last_id = 0;
   size_t line = 0;
+  size_t bytes = 0;
 
   while (ch != EOF) {
+    bytes = input.bytes;
     line = input.lines;
     int id;
     if (binary) {
@@ -1208,8 +1210,28 @@ static void parse_proof () {
 	prr ("expected either 'a' or 'd'");
       int type = ch;
       ch = read_char ();
+      size_t bytes = inputs.bytes;
       if (ch == EOF)
 	prr ("unexpected end-of-file after '%c'", type);
+      if (ch) {
+	unsigned uid = 0;
+	if (ch & 1)
+	  prr ("invalid odd clause identifier");
+	for (;;) {
+	  unsigned char uch = ch;
+#define HIGH7 ((~0u) >> 7)
+	  if ((uid & HIGH7))
+	    prr ("invalid clause identifier");
+	  uid = (uid << 7) | (uch & 127);
+	  if (!(uch & 128))
+	    break;
+	  ch = read_char ();
+	  if (ch == EOF)
+	    prr ("unexpected end-of-file parsing clause identifier");
+	}
+	id = (uid >> 1);
+	dbg ("parsed clause identifier %d at line %zu", id, line + 1);
+      } else id = 0;
     } else {
       if (!isdigit (ch))
         prr ("expected digit as first character of line");
