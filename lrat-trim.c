@@ -1274,7 +1274,8 @@ static void parse_proof () {
                    other, id);
           } else if (ch != '\n')
             prr ("expected new-line after '0' at end of deletion %d", id);
-          delete_antecedent (other, id);
+	  if (other)
+	    delete_antecedent (other, id);
           last = other;
         } while (last);
 #if !defined(NDEBUG) || defined(LOGGING)
