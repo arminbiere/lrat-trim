@@ -1333,11 +1333,13 @@ static void parse_proof () {
         } while (last);
       }
 #if !defined(NDEBUG) || defined(LOGGING)
+      PUSH (parsed_antecedents, 0);
       dbgs (parsed_antecedents.begin,
             "parsed deletion and deleted clauses");
       CLEAR (parsed_antecedents);
 #endif
     } else {
+      assert (type == 'a'); // Adding a clause code starts here.
       if (id == last_id)
         prr ("line identifier '%d' of addition line does not increase", id);
       if (!first_clause_added_in_proof) {
