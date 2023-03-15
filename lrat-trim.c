@@ -1224,10 +1224,10 @@ static void parse_proof () {
         if (ch) {
           unsigned uid = 0, shift = 0;
           for (;;) {
-            unsigned char uch = ch;
+            unsigned uch = ch;
             if (shift == 28 && (uch & ~15u))
               prr ("excessive clause identifier");
-            uid = (uch & 127) << shift;
+            uid |= (uch & 127) << shift;
             if (!(uch & 128))
               break;
             shift += 7;
@@ -1242,7 +1242,7 @@ static void parse_proof () {
           id = uid;
         } else
           id = 0;
-        dbg ("parsed clause identifier %d at line byte", id);
+        dbg ("parsed clause identifier %d at byte %zu", id, info);
       } else
         id = last_id;
     } else {	// !binary
@@ -1266,7 +1266,7 @@ static void parse_proof () {
       }
       if (ch != ' ')
         prr ("expected space after identifier '%d'", id);
-      dbg ("parsed clause identifier %d at line %zu", id, info + 1);
+      dbg ("parsed clause identifier %d at line %zu", id, info);
       ch = read_ascii ();
       if (ch == 'd') {
         ch = read_ascii ();
@@ -1293,10 +1293,10 @@ static void parse_proof () {
           if (ch) {
             unsigned uother = 0, shift = 0;
             for (;;) {
-              unsigned char uch = ch;
+              unsigned uch = ch;
               if (shift == 28 && (uch & ~15u))
                 prr ("excessive antecedent in deletion");
-              uother = (uch & 127) << shift;
+              uother |= (uch & 127) << shift;
               if (!(uch & 128))
                 break;
               shift += 7;
@@ -1404,10 +1404,10 @@ static void parse_proof () {
           }
           unsigned uidx = 0, shift = 0;
           for (;;) {
-            unsigned char uch = ch;
+            unsigned uch = ch;
             if (shift == 28 && (uch & ~15u))
               prr ("excessive literal in clause %d", id);
-            uidx = (uch & 127) << shift;
+            uidx |= (uch & 127) << shift;
             if (!(uch & 128))
               break;
             shift += 7;
@@ -1514,10 +1514,10 @@ static void parse_proof () {
           }
           unsigned uother = 0, shift = 0;
           for (;;) {
-            unsigned char uch = ch;
+            unsigned uch = ch;
             if (shift == 28 && (uch & ~15u))
               prr ("excessive antecedent in clause %d", id);
-            uother = (uch & 127) << shift;
+            uother |= (uch & 127) << shift;
             if (!(uch & 128))
               break;
             shift += 7;
@@ -1632,7 +1632,10 @@ static void parse_proof () {
       ACCESS (clauses.status, id) = 1;
     }
     last_id = id;
-    ch = binary ? read_binary () : read_ascii ();
+    if (binary) {
+      ch = read_binary ();
+      input.lines++;
+    } else ch = read_ascii ();
   }
   RELEASE (parsed_antecedents);
   RELEASE (parsed_literals);
