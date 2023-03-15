@@ -524,8 +524,12 @@ static size_t fill_buffer () {
 // having declared them as 'inline'.
 
 static inline int read_buffer (void) __attribute__ ((always_inline));
-static inline void count_read (int ch) __attribute__ ((always_inline));
-static inline int read_char (void) __attribute__ ((always_inline));
+
+static inline void count_ascii (int ch) __attribute__ ((always_inline));
+static inline int read_ascii (void) __attribute__ ((always_inline));
+
+static inline void count_binary (int ch) __attribute__ ((always_inline));
+static inline int read_binary (void) __attribute__ ((always_inline));
 
 static inline int read_buffer (void) {
   if (buffer.pos == buffer.end && !fill_buffer ())
@@ -533,7 +537,7 @@ static inline int read_buffer (void) {
   return buffer.chars[buffer.pos++];
 }
 
-static inline void count_read (int ch) {
+static inline void count_ascii (int ch) {
   if (ch == '\n')
     input.lines++;
   if (ch != EOF) {
@@ -542,8 +546,9 @@ static inline void count_read (int ch) {
   }
 }
 
-static inline int read_char (void) {
+static inline int read_ascii (void) {
   assert (input.file);
+  assert (!input.binary);
   assert (input.saved == EOF);
   int res = read_buffer ();
   if (res == EOF)
@@ -555,7 +560,21 @@ static inline int read_char (void) {
     if (res != '\n')
       prr ("carriage-return without following new-line");
   }
-  count_read (res);
+  count_ascii (res);
+  return res;
+}
+
+static inline void count_binary (int ch) {
+  if (ch != EOF)
+    input.bytes++;
+}
+
+static inline int read_binary (void) {
+  assert (input.file);
+  assert (input.binary);
+  assert (input.saved == EOF);
+  int res = read_buffer ();
+  count_binary (res);
   return res;
 }
 
@@ -578,7 +597,7 @@ static int read_first_char (void) {
     return EOF;
   int res = input.saved;
   if (res == EOF)
-    res = read_char ();
+    res = read_ascii ();
   else
     input.saved = EOF;
   return res;
@@ -857,7 +876,7 @@ static const char *exceeds_int_max (int n, int ch) {
   do {
     assert (i < sizeof buffer);
     buffer[i++] = ch;
-  } while (i < size && ISDIGIT (ch = read_char ()));
+  } while (i < size && ISDIGIT (ch = read_ascii ()));
   if (ch == '\n') {
     assert (input.lines);
     input.lines--;
@@ -881,24 +900,24 @@ static void parse_cnf () {
   input = *cnf.input;
   msg ("reading CNF from '%s'", input.path);
   int ch;
-  for (ch = read_first_char (); ch != 'p'; ch = read_char ())
+  for (ch = read_first_char (); ch != 'p'; ch = read_ascii ())
     if (ch != 'c')
       prr ("expected 'c' or 'p' as first character");
     else
-      while ((ch = read_char ()) != '\n')
+      while ((ch = read_ascii ()) != '\n')
         if (ch == EOF)
           prr ("end-of-file in comment before header");
-  if (read_char () != ' ')
+  if (read_ascii () != ' ')
     prr ("expected space after 'p'");
-  if (read_char () != 'c' || read_char () != 'n' || read_char () != 'f')
+  if (read_ascii () != 'c' || read_ascii () != 'n' || read_ascii () != 'f')
     prr ("expected 'p cnf'");
-  if (read_char () != ' ')
+  if (read_ascii () != ' ')
     prr ("expected space after 'p cnf'");
-  ch = read_char ();
+  ch = read_ascii ();
   if (!ISDIGIT (ch))
     prr ("expected digit after 'p cnf '");
   int header_variables = ch - '0';
-  while (ISDIGIT (ch = read_char ())) {
+  while (ISDIGIT (ch = read_ascii ())) {
     if (INT_MAX / 10 < header_variables)
     NUMBER_OF_VARIABLES_EXCEEDS_INT_MAX:
       prr ("number of variables '%s' exceeds 'INT_MAX'",
@@ -913,11 +932,11 @@ static void parse_cnf () {
   }
   if (ch != ' ')
     prr ("expected space after 'p cnf %d", header_variables);
-  ch = read_char ();
+  ch = read_ascii ();
   if (!ISDIGIT (ch))
     prr ("expected digit after 'p cnf %d '", header_variables);
   int header_clauses = ch - '0';
-  while (ISDIGIT (ch = read_char ())) {
+  while (ISDIGIT (ch = read_ascii ())) {
     if (INT_MAX / 10 < header_clauses)
     NUMBER_OF_CLAUSES_EXCEEDS_INT_MAX:
       prr ("number of clauses '%s' exceeds 'INT_MAX'",
@@ -931,7 +950,7 @@ static void parse_cnf () {
     header_clauses += digit;
   }
   while (ch == ' ')
-    ch = read_char ();
+    ch = read_ascii ();
   if (ch != '\n')
     prr ("expected new-line after 'p cnf %d %d'", header_variables,
          header_clauses);
@@ -943,7 +962,7 @@ static void parse_cnf () {
   struct int_stack parsed_literals;
   ZERO (parsed_literals);
   for (;;) {
-    ch = read_char ();
+    ch = read_ascii ();
     if (ch == ' ' || ch == '\t' || ch == '\n')
       continue;
     if (ch == EOF) {
@@ -960,14 +979,14 @@ static void parse_cnf () {
     }
     if (ch == 'c') {
     SKIP_COMMENT_AFTER_HEADER:
-      while ((ch = read_char ()) != '\n')
+      while ((ch = read_ascii ()) != '\n')
         if (ch == EOF)
           prr ("end-of-file in comment after header");
       continue;
     }
     int sign;
     if (ch == '-') {
-      ch = read_char ();
+      ch = read_ascii ();
       if (!ISDIGIT (ch))
         prr ("expected digit after '-'");
       if (ch == '0')
@@ -979,7 +998,7 @@ static void parse_cnf () {
       sign = 1;
     }
     int idx = ch - '0';
-    while (ISDIGIT (ch = read_char ())) {
+    while (ISDIGIT (ch = read_ascii ())) {
       if (!idx)
         prr ("unexpected digit '%c' after '0'", ch);
       if (INT_MAX / 10 < idx)
@@ -1103,7 +1122,7 @@ static void delete_antecedent (int other, bool binary, size_t info) {
       prr ("clause %d requested to be deleted "
            "at %s %zu was already deleted before "
            "(use '--relax' to ignore such deletions and "
-           " with '--track' for more information)",
+           "with '--track' for more information)",
            other, binary ? "byte" : "line", info);
   }
 
@@ -1199,11 +1218,9 @@ static void parse_proof () {
         prr ("expected either 'a' or 'd'");
       type = ch;
       if (ch == 'a') {
-        ch = read_char ();
+        ch = read_binary ();
         if (ch == EOF)
           prr ("end-of-file after '%c'", type);
-        if (ch & 1)
-          prr ("invalid negative clause identifier");
         if (ch) {
           unsigned uid = 0, shift = 0;
           for (;;) {
@@ -1214,23 +1231,25 @@ static void parse_proof () {
             if (!(uch & 128))
               break;
             shift += 7;
-            ch = read_char ();
+            ch = read_binary ();
             if (!ch)
               prr ("invalid trailing zero byte in clause identifier");
             if (ch == EOF)
               prr ("end-of-file parsing clause identifier");
           }
-          id = (uid >> 1);
+	  if (uid > (unsigned) INT_MAX)
+	    prr ("clause identifier %u too large", uid);
+          id = uid;
         } else
           id = 0;
         dbg ("parsed clause identifier %d at line byte", id);
       } else
         id = last_id;
-    } else {
+    } else {	// !binary
       if (!isdigit (ch))
         prr ("expected digit as first character of line");
       id = ch - '0';
-      while (ISDIGIT (ch = read_char ())) {
+      while (ISDIGIT (ch = read_ascii ())) {
         if (!id)
           prr ("unexpected digit '%c' after '0'", ch);
         if (INT_MAX / 10 < id)
@@ -1248,9 +1267,9 @@ static void parse_proof () {
       if (ch != ' ')
         prr ("expected space after identifier '%d'", id);
       dbg ("parsed clause identifier %d at line %zu", id, info + 1);
-      ch = read_char ();
+      ch = read_ascii ();
       if (ch == 'd') {
-        ch = read_char ();
+        ch = read_ascii ();
         if (ch != ' ')
           prr ("expected space after '%d d'", id);
         type = 'd';
@@ -1266,7 +1285,7 @@ static void parse_proof () {
       if (binary) {
         do {
           int other;
-          ch = read_char ();
+          ch = read_binary ();
           if (ch == EOF)
             prr ("end-of-file before zero byte in deletion");
           if (ch & 1)
@@ -1281,7 +1300,7 @@ static void parse_proof () {
               if (!(uch & 128))
                 break;
               shift += 7;
-              ch = read_char ();
+              ch = read_binary ();
               if (!ch)
                 prr ("invalid trailing zero byte in antecedent deletion");
               if (ch == EOF)
@@ -1294,10 +1313,10 @@ static void parse_proof () {
             delete_antecedent (other, binary, info);
           last = other;
         } while (last);
-      } else {
+      } else { // !binary
         do {
           int other;
-          ch = read_char ();
+          ch = read_ascii ();
           if (!ISDIGIT (ch)) {
             if (last)
               prr ("expected digit after '%d ' in deletion", last);
@@ -1305,7 +1324,7 @@ static void parse_proof () {
               prr ("expected digit after '%d d ' in deletion", id);
           }
           other = ch - '0';
-          while (ISDIGIT ((ch = read_char ()))) {
+          while (ISDIGIT ((ch = read_ascii ()))) {
             if (!other)
               prr ("unexpected digit '%c' after '0' in deletion", ch);
             if (INT_MAX / 10 < other)
@@ -1374,7 +1393,7 @@ static void parse_proof () {
       assert (EMPTY (parsed_literals));
       if (binary) {
         for (;;) {
-          ch = read_char ();
+          ch = read_binary ();
           if (ch == EOF)
             prr ("end-of-file before zero byte "
                  "terminating literals in clause %d",
@@ -1392,7 +1411,7 @@ static void parse_proof () {
             if (!(uch & 128))
               break;
             shift += 7;
-            ch = read_char ();
+            ch = read_binary ();
             if (!ch)
               prr ("invalid trailing zero byte in literal of clause %d",
                    id);
@@ -1403,7 +1422,7 @@ static void parse_proof () {
           int lit = (uidx & 1) ? -idx : idx;
           PUSH (parsed_literals, lit);
         }
-      } else {
+      } else { // !binary
         int last = id;
         assert (last);
         bool first = true;
@@ -1412,9 +1431,9 @@ static void parse_proof () {
           if (first)
             first = false;
           else
-            ch = read_char ();
+            ch = read_ascii ();
           if (ch == '-') {
-            if (!ISDIGIT (ch = read_char ()))
+            if (!ISDIGIT (ch = read_ascii ()))
               prr ("expected digit after '%d -' in clause %d", last, id);
             if (ch == '0')
               prr ("expected non-zero digit after '%d -'", last);
@@ -1425,7 +1444,7 @@ static void parse_proof () {
           else
             sign = 1;
           int idx = ch - '0';
-          while (ISDIGIT (ch = read_char ())) {
+          while (ISDIGIT (ch = read_ascii ())) {
             if (!idx)
               prr ("unexpected second '%c' after '%d 0' in clause %d", ch,
                    last, id);
@@ -1486,7 +1505,7 @@ static void parse_proof () {
 
       if (binary) {
         for (;;) {
-          ch = read_char ();
+          ch = read_binary ();
           if (ch == EOF)
             prr ("end-of-file instead of antecedent in clause %d", id);
           if (!ch) {
@@ -1502,7 +1521,7 @@ static void parse_proof () {
             if (!(uch & 128))
               break;
             shift += 7;
-            ch = read_char ();
+            ch = read_binary ();
             if (!ch)
               prr ("invalid trailing zero byte in clause %d", id);
             if (ch == EOF)
@@ -1513,13 +1532,13 @@ static void parse_proof () {
             other = -other;
           PUSH (parsed_antecedents, other);
         }
-      } else {
+      } else { // !binary
         int last = 0;
         assert (!last);
         do {
           int sign;
-          if ((ch = read_char ()) == '-') {
-            if (!ISDIGIT (ch = read_char ()))
+          if ((ch = read_ascii ()) == '-') {
+            if (!ISDIGIT (ch = read_ascii ()))
               prr ("expected digit after '%d -' in clause %d", last, id);
             if (ch == '0')
               prr ("expected non-zero digit after '%d -'", last);
@@ -1531,7 +1550,7 @@ static void parse_proof () {
           else
             sign = 1;
           int other = ch - '0';
-          while (ISDIGIT (ch = read_char ())) {
+          while (ISDIGIT (ch = read_ascii ())) {
             if (!other)
               prr ("unexpected second '%c' after '%d 0' in clause %d", ch,
                    last, id);
@@ -1613,7 +1632,7 @@ static void parse_proof () {
       ACCESS (clauses.status, id) = 1;
     }
     last_id = id;
-    ch = read_char ();
+    ch = binary ? read_binary () : read_ascii ();
   }
   RELEASE (parsed_antecedents);
   RELEASE (parsed_literals);
@@ -2094,7 +2113,7 @@ static void open_input_files () {
     struct file *file = &files[0];
     input = *read_file (file);
     int ch = getc (input.file);
-    count_read (ch);
+    count_ascii (ch);
     input.saved = ch;
     *file = input;
     if (ch == 'c' || ch == 'p') {
