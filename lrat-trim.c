@@ -1261,9 +1261,9 @@ static void parse_proof () {
     if (type == 'd') {
       assert (EMPTY (parsed_antecedents));
       int last = 0;
-      do {
-        int other;
-        if (binary) {
+      if (binary) {
+        do {
+          int other;
           ch = read_char ();
           if (ch == EOF)
             prr ("end-of-file before zero byte in deletion");
@@ -1288,7 +1288,13 @@ static void parse_proof () {
             other = (uother >> 1);
           } else
             other = 0;
-        } else {
+          if (other)
+            delete_antecedent (other, binary, info);
+          last = other;
+        } while (last);
+      } else {
+        do {
+          int other;
           ch = read_char ();
           if (!ISDIGIT (ch)) {
             if (last)
@@ -1321,11 +1327,11 @@ static void parse_proof () {
                    other, id);
           } else if (ch != '\n')
             prr ("expected new-line after '0' at end of deletion");
-        }
-        if (other)
-          delete_antecedent (other, binary, info);
-        last = other;
-      } while (last);
+          if (other)
+            delete_antecedent (other, binary, info);
+          last = other;
+        } while (last);
+      }
 #if !defined(NDEBUG) || defined(LOGGING)
       dbgs (parsed_antecedents.begin,
             "parsed deletion and deleted clauses");
