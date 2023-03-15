@@ -1395,8 +1395,8 @@ static void parse_proof () {
         for (;;) {
           ch = read_binary ();
           if (ch == EOF)
-            prr ("end-of-file before zero byte "
-                 "terminating literals in clause %d",
+            prr ("end-of-file before terminating "
+                 "zero byte in literals of clause %d",
                  id);
           if (!ch) {
             PUSH (parsed_literals, 0);
