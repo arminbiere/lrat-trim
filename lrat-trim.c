@@ -508,7 +508,7 @@ static void logging_suffix () {
 #define size_buffer (1u << 20)
 
 struct buffer {
-  char chars[size_buffer];
+  unsigned char chars[size_buffer];
   size_t pos, end;
 } buffer;
 
