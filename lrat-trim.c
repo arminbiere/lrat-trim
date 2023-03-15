@@ -1083,7 +1083,7 @@ static void delete_antecedent (int other, bool binary, size_t info) {
     else if (relax)
       ignored_deletions++;
     else
-      prr ("deleted clause '%d' in deletion at %s %zu"
+      prr ("deleted clause '%d' at %s %zu"
            "is neither an original clause nor has been added "
            "(use '--relax' to ignore such deletions)",
            other, binary ? "byte" : "line", info);
@@ -1094,12 +1094,13 @@ static void delete_antecedent (int other, bool binary, size_t info) {
       ignored_deletions++;
     else if (track) {
       assert (*other_deletion);
-      prr ("clause %d requested to be deleted in deletion"
-           "was already deleted in deletion %d at %s %zu "
+      prr ("clause %d requested to be deleted at %s %zu"
+           "was already deleted at %s %zu "
            "(use '--relax' to ignore such deletions)",
-           other, binary ? "byte" : "line", *other_deletion);
+           other, binary ? "byte" : "line", info, binary ? "byte" : "line",
+           *other_deletion);
     } else
-      prr ("clause %d requested to be deleted in deletion "
+      prr ("clause %d requested to be deleted "
            "at %s %zu was already deleted before "
            "(use '--relax' to ignore such deletions and "
            " with '--track' for more information)",
@@ -1110,13 +1111,13 @@ static void delete_antecedent (int other, bool binary, size_t info) {
   // requested and the clause was never added or got now deleted.
 
   if (track && status >= 0) {
-    dbg ("marked clause %d to be deleted at %s %zu in deletion", other,
-         info, binary ? "byte" : "line");
+    dbg ("marked clause %d to be deleted at %s %zu", other,
+         binary ? "byte" : "line", info);
     *other_deletion = info;
   }
 
   if (status >= 0) {
-    if (is_original_clause (id))
+    if (is_original_clause (other))
       statistics.original.cnf.deleted++;
     else
       statistics.original.proof.deleted++;
@@ -1249,7 +1250,7 @@ static void parse_proof () {
       if (ch == 'd') {
         ch = read_char ();
         if (ch != ' ')
-          prr ("expected space after '%d d' in deletion %d", id, id);
+          prr ("expected space after '%d d'", id);
         type = 'd';
       } else
         type = 'a';
@@ -1291,20 +1292,18 @@ static void parse_proof () {
           ch = read_char ();
           if (!ISDIGIT (ch)) {
             if (last)
-              prr ("expected digit after '%d ' in deletion %d", last, id);
+              prr ("expected digit after '%d ' in deletion", last);
             else
-              prr ("expected digit after '%d d ' in deletion %d", id, id);
+              prr ("expected digit after '%d d ' in deletion", id);
           }
           other = ch - '0';
           while (ISDIGIT ((ch = read_char ()))) {
             if (!other)
-              prr ("unexpected digit '%c' after '0' in deletion %d", ch,
-                   id);
+              prr ("unexpected digit '%c' after '0' in deletion", ch);
             if (INT_MAX / 10 < other)
             DELETED_CLAUSE_IDENTIFIER_EXCEEDS_INT_MAX:
-              prr ("deleted clause identifier '%s' exceeds 'INT_MAX' "
-                   "in deletion %d",
-                   exceeds_int_max (other, ch), id);
+              prr ("deleted clause identifier '%s' exceeds 'INT_MAX'",
+                   exceeds_int_max (other, ch));
             other *= 10;
             int digit = ch - '0';
             if (INT_MAX - digit < other) {
@@ -1315,16 +1314,16 @@ static void parse_proof () {
           }
           if (other) {
             if (ch != ' ')
-              prr ("expected space after '%d' in deletion %d", other, id);
+              prr ("expected space after '%d' in deletion", other);
             if (id && other > id)
               prr ("deleted clause '%d' "
                    "larger than deletion identifier '%d'",
                    other, id);
           } else if (ch != '\n')
-            prr ("expected new-line after '0' at end of deletion %d", id);
+            prr ("expected new-line after '0' at end of deletion");
         }
         if (other)
-          delete_antecedent (other, id, binary, info);
+          delete_antecedent (other, binary, info);
         last = other;
       } while (last);
 #if !defined(NDEBUG) || defined(LOGGING)
@@ -1558,19 +1557,14 @@ static void parse_proof () {
                    signed_other, id);
             else if (status < 0) {
               if (track) {
-                struct deletion *other_deletion =
-                    &ACCESS (clauses.deleted, other);
-                assert (other_deletion->id);
-                assert (other_deletion->info);
-                prr ("antecedent %d in clause %d "
-                     "was already deleted in deletion %d at line %zu",
-                     signed_other, id, other_deletion->id,
-                     other_deletion->info);
+                size_t info = ACCESS (clauses.deleted, other);
+                assert (info);
+                prr ("antecedent %d in clause %d was deleted at %s %zu",
+                     signed_other, id, binary ? "byte" : "clause", info);
               } else
-                prr (
-                    "antecedent %d in clause %d was already deleted before "
-                    "(run with '--track' for more information)",
-                    other, id);
+                prr ("antecedent %d in clause %d was deleted before "
+                     "(run with '--track' for more information)",
+                     other, id);
             }
           } else {
             if (ch != '\n')
@@ -1585,8 +1579,8 @@ static void parse_proof () {
       assert (size_antecedents > 0);
       if (track) {
         ADJUST (clauses.added, id);
-        struct addition *addition = &ACCESS (clauses.added, id);
-        addition->info = info;
+        size_t *addition = &ACCESS (clauses.added, id);
+        *addition = info;
       }
       statistics.original.proof.added++;
       if (checking && forward) {
