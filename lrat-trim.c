@@ -1172,10 +1172,12 @@ static void parse_proof () {
     prr ("unexpected '%c' as first character: "
          "did you use a CNF instead of a proof file?",
          ch);
-  else if (isprint (ch))
-    prr ("unexpected first character '%c'", ch);
-  else
-    prr ("unexpected first byte '0x02%x'", (unsigned)ch);
+  else if (ch != EOF) {
+    if (isprint (ch))
+      prr ("unexpected first character '%c'", ch);
+    else
+      prr ("unexpected first byte '0x02%x'", (unsigned)ch);
+  }
 
   // To track in the binary proof format we use byte offsets instead of line
   // numbers.  This information is used in debugging and error messages and
