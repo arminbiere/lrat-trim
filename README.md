@@ -1,8 +1,9 @@
 # LRAT Trimmer
 
-Reads an LRAT proof, trims it and optionally writes it with optimized deletion lines.
+Reads, checks and trims LRAT proofs.
 
 Use `./configure && make test` to build and test the tool `lrat-trim` and then use `ltra-trim
--h` for usage information.
+-h` for extended usage information or check out
+[`lrat-trim.c`](lrat-trim.c).
 
 For more build options see `./configure -h`.
