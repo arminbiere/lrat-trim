@@ -116,6 +116,8 @@ run 0 lratonlyforce3 /dev/null --forward
 run 1 twodashes1 - - /dev/null
 run 1 twodashes2 /dev/null /dev/null - -
 run 0 stdin - </dev/null
+run 0 twicenull /dev/null /dev/null
+run 0 noproofascii -a /dev/null
 
 $lrattrim -l -h >/dev/null 2>/dev/null && \
 run 20 add4log add4.cnf add4.lrat -l

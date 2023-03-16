@@ -1,4 +1,4 @@
-static const char *version = "0.2.0-rc.2";
+static const char *version = "0.2.0-rc.3";
 
 // clang-format off
 
@@ -8,7 +8,7 @@ static const char * usage =
 "\n"
 "where '<option> ...' is a potentially empty list of the following options\n"
 "\n"
-"  -a | --ascii    write output-proof in binary LRAT format\n"
+"  -a | --ascii    output proof in ASCII LRAT format (default is binary)\n"
 "  -f | --force    overwrite CNF alike second file with proof\n"
 "  -S | --forward  forward check all added clauses eagerly\n"
 "  -h | --help     print this command line option summary\n"
@@ -513,8 +513,7 @@ struct buffer {
 } buffer;
 
 static size_t fill_buffer () {
-  if (!input.file)
-    return buffer.pos = buffer.end = 0;
+  assert (input.file);
   buffer.pos = 0;
   buffer.end = fread (buffer.chars, 1, size_buffer, input.file);
   return buffer.end;
@@ -625,7 +624,38 @@ static void flush_buffer () {
   buffer.pos = 0;
 }
 
-static inline void write_char (unsigned ch) {
+static inline void write_binary (unsigned char)
+    __attribute__ ((always_inline));
+
+static inline void write_unsigned (unsigned)
+    __attribute__ ((always_inline));
+
+static inline void write_signed (int) __attribute__ ((always_inline));
+
+static inline void write_binary (unsigned char ch) {
+  if (buffer.pos == size_buffer)
+    flush_buffer ();
+  buffer.chars[buffer.pos++] = ch;
+  output.bytes++;
+}
+
+static inline void write_unsigned (unsigned u) {
+  while (u > 127) {
+    write_binary (128 | (u & 127));
+    u >>= 7;
+  }
+  write_binary (u);
+}
+
+static inline void write_signed (int i) {
+  assert (i != INT_MIN);
+  write_unsigned ((i < 0) + 2 * (unsigned)abs (i));
+}
+
+static inline void write_ascii (unsigned char)
+    __attribute__ ((always_inline));
+
+static inline void write_ascii (unsigned char ch) {
   if (buffer.pos == size_buffer)
     flush_buffer ();
   buffer.chars[buffer.pos++] = ch;
@@ -634,11 +664,11 @@ static inline void write_char (unsigned ch) {
     output.lines++;
 }
 
-static inline void write_space () { write_char (' '); }
+static inline void write_space () { write_ascii (' '); }
 
 static inline void write_str (const char *str) {
   for (const char *p = str; *p; p++)
-    write_char (*p);
+    write_ascii (*p);
 }
 
 static inline void write_int (int i) __attribute__ ((always_inline));
@@ -659,7 +689,7 @@ static inline void write_int (int i) {
       *--p = '-';
     write_str (p);
   } else
-    write_char ('0');
+    write_ascii ('0');
 }
 
 static char size_t_buffer[32];
@@ -675,7 +705,7 @@ static inline void write_size_t (size_t i) {
     }
     write_str (p);
   } else
-    write_char ('0');
+    write_ascii ('0');
 }
 
 #include <sys/resource.h>
@@ -1195,7 +1225,7 @@ static void parse_proof () {
     if (isprint (ch))
       prr ("unexpected first character '%c'", ch);
     else
-      prr ("unexpected first byte '0x02%x'", (unsigned)ch);
+      prr ("unexpected first byte '0x%02x'", (unsigned)ch);
   }
 
   // To track in the binary proof format we use byte offsets instead of line
@@ -1213,7 +1243,6 @@ static void parse_proof () {
     int id, type = 0;
 
     if (binary) {
-      assert (ch == 'a' || ch == 'd');
       if (ch != 'a' && ch != 'd')
         prr ("expected either 'a' or 'd'");
       type = ch;
@@ -1221,31 +1250,30 @@ static void parse_proof () {
         ch = read_binary ();
         if (ch == EOF)
           prr ("end-of-file after '%c'", type);
-        if (ch) {
-          unsigned uid = 0, shift = 0;
-          for (;;) {
-            unsigned uch = ch;
-            if (shift == 28 && (uch & ~15u))
-              prr ("excessive clause identifier");
-            uid |= (uch & 127) << shift;
-            if (!(uch & 128))
-              break;
-            shift += 7;
-            ch = read_binary ();
-            if (!ch)
-              prr ("invalid trailing zero byte in clause identifier");
-            if (ch == EOF)
-              prr ("end-of-file parsing clause identifier");
-          }
-	  if (uid > (unsigned) INT_MAX)
-	    prr ("clause identifier %u too large", uid);
-          id = uid;
-        } else
-          id = 0;
+        if (!ch)
+          prr ("invalid zero clause identifier '0' in addition");
+        unsigned uid = 0, shift = 0;
+        for (;;) {
+          unsigned uch = ch;
+          if (shift == 28 && (uch & ~15u))
+            prr ("excessive clause identifier");
+          uid |= (uch & 127) << shift;
+          if (!(uch & 128))
+            break;
+          shift += 7;
+          ch = read_binary ();
+          if (!ch)
+            prr ("invalid zero byte in clause identifier");
+          if (ch == EOF)
+            prr ("end-of-file parsing clause identifier");
+        }
+        if (uid > (unsigned)INT_MAX)
+          prr ("clause identifier %u too large", uid);
+        id = uid;
         dbg ("parsed clause identifier %d at byte %zu", id, info);
       } else
         id = last_id;
-    } else {	// !binary
+    } else { // !binary
       if (!isdigit (ch))
         prr ("expected digit as first character of line");
       id = ch - '0';
@@ -1302,7 +1330,7 @@ static void parse_proof () {
               shift += 7;
               ch = read_binary ();
               if (!ch)
-                prr ("invalid trailing zero byte in antecedent deletion");
+                prr ("invalid zero byte in antecedent deletion");
               if (ch == EOF)
                 prr ("end-of-file parsing antecedent in deletion");
             }
@@ -1413,8 +1441,7 @@ static void parse_proof () {
             shift += 7;
             ch = read_binary ();
             if (!ch)
-              prr ("invalid trailing zero byte in literal of clause %d",
-                   id);
+              prr ("invalid zero byte in literal of clause %d", id);
             if (ch == EOF)
               prr ("end-of-file parsing literal in clause %d", id);
           }
@@ -1523,7 +1550,7 @@ static void parse_proof () {
             shift += 7;
             ch = read_binary ();
             if (!ch)
-              prr ("invalid trailing zero byte in clause %d", id);
+              prr ("invalid zero byte in clause %d", id);
             if (ch == EOF)
               prr ("end-of-file parsing antecedent in clause %d", id);
           }
@@ -1635,7 +1662,8 @@ static void parse_proof () {
     if (binary) {
       ch = read_binary ();
       input.lines++;
-    } else ch = read_ascii ();
+    } else
+      ch = read_ascii ();
   }
   RELEASE (parsed_antecedents);
   RELEASE (parsed_literals);
@@ -1815,17 +1843,28 @@ static void write_non_empty_proof () {
       ACCESS (clauses.heads, where) = id;
     } else {
       if (!statistics.trimmed.cnf.deleted) {
-        write_int (first_clause_added_in_proof - 1);
-        write_str (" d");
+        if (ascii) {
+          write_int (first_clause_added_in_proof - 1);
+          write_str (" d");
+        } else
+          write_binary ('d');
       }
-      write_space ();
-      write_int (id);
+      if (ascii) {
+        write_space ();
+        write_int (id);
+      } else
+        write_signed (id);
       statistics.trimmed.cnf.deleted++;
     }
   }
 
   if (statistics.trimmed.cnf.deleted) {
-    write_str (" 0\n");
+    if (ascii)
+      write_str (" 0\n");
+    else {
+      write_binary (0);
+      output.lines++;
+    }
 
     vrb ("deleting %zu original CNF clauses initially",
          statistics.trimmed.cnf.deleted);
@@ -1845,37 +1884,72 @@ static void write_non_empty_proof () {
         ACCESS (clauses.heads, where) = id;
         ACCESS (clauses.map, id) = mapped;
       }
-      write_int (mapped);
+      if (ascii)
+        write_int (mapped);
+      else {
+        write_binary ('a');
+        write_unsigned (mapped);
+      }
       int *l = ACCESS (clauses.literals, id);
       assert (l);
-      for (const int *p = l; *p; p++)
-        write_space (), write_int (*p);
-      write_str (" 0");
+      if (ascii) {
+        for (const int *p = l; *p; p++)
+          write_space (), write_int (*p);
+        write_str (" 0");
+      } else {
+        for (const int *p = l; *p; p++)
+          write_signed (*p);
+        write_binary (0);
+      }
       int *a = ACCESS (clauses.antecedents, id);
       assert (a);
-      for (const int *p = a; *p; p++) {
-        write_space ();
-        int other = *p;
-        assert (abs (other) < id);
-        int mapped = map_id (other);
-        assert ((other < 0) == (mapped < 0));
-        write_int (mapped);
-      }
-      write_str (" 0\n");
-      int head = ACCESS (clauses.heads, id);
-      if (head) {
-        write_int (mapped);
-        write_str (" d");
-        for (int link = head, next; link; link = next) {
-          if (is_original_clause (link))
-            statistics.trimmed.cnf.deleted++;
-          else
-            statistics.trimmed.proof.deleted++;
+      if (ascii) {
+        for (const int *p = a; *p; p++) {
           write_space ();
-          write_int (map_id (link));
-          next = ACCESS (clauses.links, link);
+          int other = *p;
+          assert (abs (other) < id);
+          int mapped = map_id (other);
+          assert ((other < 0) == (mapped < 0));
+          write_int (mapped);
         }
         write_str (" 0\n");
+      } else {
+        for (const int *p = a; *p; p++) {
+          int other = *p;
+          assert (abs (other) < id);
+          int mapped = map_id (other);
+          assert ((other < 0) == (mapped < 0));
+          write_signed (mapped);
+        }
+        write_binary (0);
+      }
+      int head = ACCESS (clauses.heads, id);
+      if (head) {
+        if (ascii) {
+          write_int (mapped);
+          write_str (" d");
+          for (int link = head, next; link; link = next) {
+            if (is_original_clause (link))
+              statistics.trimmed.cnf.deleted++;
+            else
+              statistics.trimmed.proof.deleted++;
+            write_space ();
+            write_int (map_id (link));
+            next = ACCESS (clauses.links, link);
+          }
+          write_str (" 0\n");
+        } else {
+          write_binary ('d');
+          for (int link = head, next; link; link = next) {
+            if (is_original_clause (link))
+              statistics.trimmed.cnf.deleted++;
+            else
+              statistics.trimmed.proof.deleted++;
+            write_signed (map_id (link));
+            next = ACCESS (clauses.links, link);
+          }
+          write_binary (0);
+        }
       }
       mapped++;
     }
@@ -1940,7 +2014,7 @@ static void write_cnf () {
   assert (trimming);
   size_t count = 0;
   write_size_t (statistics.trimmed.cnf.added);
-  write_char ('\n');
+  write_ascii ('\n');
   int id = 0;
   while (id++ != last_clause_added_in_cnf)
     if (id <= empty_clause && ACCESS (clauses.used, id))
@@ -2115,9 +2189,14 @@ static void open_input_files () {
   else if (size_files == 2) {
     struct file *file = &files[0];
     input = *read_file (file);
-    int ch = getc (input.file);
-    count_ascii (ch);
-    input.saved = ch;
+    int ch;
+    if (input.file) {
+      ch = getc (input.file);
+      input.saved = ch;
+    } else {
+      assert (input.saved == EOF);
+      ch = EOF;
+    }
     *file = input;
     if (ch == 'c' || ch == 'p') {
       cnf.input = file;
