@@ -11,7 +11,7 @@ rm -f *.err* *.log* *.lrat1
 
 lrattrim=../../lrat-trim
 
-[ -f $lrattrim ] || die "could not find 'lrat-trim"
+[ -f $lrattrim ] || die "could not find 'lrat-trim'"
 
 run () {
   name=$1
@@ -35,9 +35,9 @@ run () {
   status=$?
   if [ $status = $expected ]
   then
-    echo "lrat-trim test/check/$cnf test/check/$lrat # checking succeeded with exit status '$status'"
+    echo "./lrat-trim test/check/$cnf test/check/$lrat # checking succeeded with exit status '$status'"
   else
-    echo "lrat-trim test/check/$cnf test/check/$lrat # checking failed with exit status '$status' (expected '$expected')"
+    echo "./lrat-trim test/check/$cnf test/check/$lrat # checking failed with exit status '$status' (expected '$expected')"
     exit 1
   fi
 
@@ -48,9 +48,9 @@ run () {
   status=$?
   if [ $status = $expected ]
   then
-    echo "lrat-trim test/check/$cnf test/check/$lrat -S # checking succeeded with exit status '$status'"
+    echo "./lrat-trim test/check/$cnf test/check/$lrat -S # checking succeeded with exit status '$status'"
   else
-    echo "lrat-trim test/check/$cnf test/check/$lrat -S # checking failed with exit status '$status' (expected '$expected')"
+    echo "./lrat-trim test/check/$cnf test/check/$lrat -S # checking failed with exit status '$status' (expected '$expected')"
     exit 1
   fi
 }

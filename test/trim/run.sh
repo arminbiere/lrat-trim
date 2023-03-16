@@ -11,14 +11,14 @@ rm -f *.err* *.log* *.lrat[12]
 
 lrattrim=../../lrat-trim
 
-[ -f $lrattrim ] || die "could not find 'lrat-trim"
+[ -f $lrattrim ] || die "could not find 'lrat-trim'"
 
-run () {
+runascii () {
   name=$1
 
   lrat=$name.lrat
-  log=$name.log
-  err=$name.err
+  log=$name.ascii.log
+  err=$name.ascii.err
 
   [ -f $lrat ] || die "could not find '$lrat'"
 
@@ -26,9 +26,9 @@ run () {
   status=$?
   if [ $status = 0 ]
   then
-    echo "lrat-trim test/trim/$lrat # trimming in memory succeeded"
+    echo "./lrat-trim test/trim/$lrat # trimming in memory succeeded"
   else
-    echo "lrat-trim test/trim/$lrat # trimming in memory failed"
+    echo "./lrat-trim test/trim/$lrat # trimming in memory failed"
     exit 1
   fi
 
@@ -40,9 +40,9 @@ run () {
   status=$?
   if [ $status = 0 ]
   then
-    echo "lrat-trim test/trim/$lrat test/trim/$lrat1 # trimming succeeded"
+    echo "./lrat-trim -a test/trim/$lrat test/trim/$lrat1 # trimming succeeded"
   else
-    echo "lrat-trim test/trim/$lrat test/trim/$lrat1 # trimming failed"
+    echo "./lrat-trim -a test/trim/$lrat test/trim/$lrat1 # trimming failed"
     exit 1
   fi
 
@@ -54,47 +54,77 @@ run () {
   status=$?
   if [ $status = 0 ]
   then
-    echo "lrat-trim test/trim/$lrat1 test/trim/$lrat2 # trimming succeeded"
+    echo "./lrat-trim -a test/trim/$lrat1 test/trim/$lrat2 # trimming succeeded"
   else
-    echo "lrat-trim test/trim/$lrat1 test/trim/$lrat2 # trimming failed"
+    echo "./lrat-trim -a test/trim/$lrat1 test/trim/$lrat2 # trimming failed"
     exit 1
   fi
+
+  runs=`expr $runs + 1`
 }
 
-run empty
-run bin1
-run full1
-run full2
-run full3
-run full4
-run full5
-run full6
-run full7
-run add4
-run add8
-run ph2
-run ph3
-run ph4
+runbinary () {
+  name=$1
 
-runs=`grep '^run [a-z]' run.sh|wc -l`
-logs=`ls *.log|wc -l`
-log1s=`ls *.log1|wc -l`
-log2s=`ls *.log2|wc -l`
-errs=`ls *.err|wc -l`
-err1s=`ls *.err1|wc -l`
-err2s=`ls *.err2|wc -l`
-lrats=`ls *lrat|wc -l`
-lrat1s=`ls *lrat|wc -l`
-lrat2s=`ls *lrat|wc -l`
+  lrit=$name.lrit
+  log=$name.binary.log
+  err=$name.binary.err
 
-[ $runs = $logs ] || die "found $runs runs in './run.sh' but $logs '.log' files"
-[ $runs = $log1s ] || die "found $runs runs in './run.sh' but $log1s '.log1' files"
-[ $runs = $log2s ] || die "found $runs runs in './run.sh' but $log2s '.log2' files"
-[ $runs = $errs ] || die "found $runs runs in './run.sh' but $errs '.err' files"
-[ $runs = $err1s ] || die "found $runs runs in './run.sh' but $err1s '.err1' files"
-[ $runs = $err2s ] || die "found $runs runs in './run.sh' but $err1s '.err2' files"
-[ $runs = $lrats ] || die "found $runs runs in './run.sh' but $lrats '.lrat' files"
-[ $runs = $lrat1s ] || die "found $runs runs in './run.sh' but $lrat1s '.lrat1' files"
-[ $runs = $lrat2s ] || die "found $runs runs in './run.sh' but $lrat2s '.lrat2' files"
+  [ -f $lrit ] || die "could not find '$lrit'"
+
+  $lrattrim $lrit 1>$log 2>$err
+  status=$?
+  if [ $status = 0 ]
+  then
+    echo "./lrat-trim test/trim/$lrit # trimming in memory succeeded"
+  else
+    echo "./lrat-trim test/trim/$lrit # trimming in memory failed"
+    exit 1
+  fi
+
+  lrit1=${lrit}1
+  log1=${log}1
+  err1=${err}1
+
+  $lrattrim $lrit $lrit1 1>$log1 2>$err1
+  status=$?
+  if [ $status = 0 ]
+  then
+    echo "./lrat-trim test/trim/$lrit test/trim/$lrit1 # trimming succeeded"
+  else
+    echo "./lrat-trim test/trim/$lrit test/trim/$lrit1 # trimming failed"
+    exit 1
+  fi
+
+  lrit2=${lrit}2
+  log2=${log}2
+  err2=${err}2
+
+  $lrattrim $lrit1 $lrit2 1>$log2 2>$err2
+  status=$?
+  if [ $status = 0 ]
+  then
+    echo "./lrat-trim test/trim/$lrit1 test/trim/$lrit2 # trimming succeeded"
+  else
+    echo "./lrat-trim test/trim/$lrit1 test/trim/$lrit2 # trimming failed"
+    exit 1
+  fi
+
+  runs=`expr $runs + 1`
+}
+
+runs=0
+
+for i in `ls -rS *.lrat`
+do
+  name=`basename $i .lrat`
+  runascii $name
+done
+
+for i in `ls -rS *.lrit`
+do
+  name=`basename $i .lrit`
+  runbinary $name
+done
 
 echo "passed $runs trimming tests in 'test/trim/run.sh'"

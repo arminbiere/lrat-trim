@@ -1,4 +1,4 @@
-static const char *version = "0.1.0";
+static const char *version = "0.2.0-rc.2";
 
 // clang-format off
 
@@ -8,6 +8,7 @@ static const char * usage =
 "\n"
 "where '<option> ...' is a potentially empty list of the following options\n"
 "\n"
+"  -a | --ascii    write output-proof in binary LRAT format\n"
 "  -f | --force    overwrite CNF alike second file with proof\n"
 "  -S | --forward  forward check all added clauses eagerly\n"
 "  -h | --help     print this command line option summary\n"
@@ -15,12 +16,15 @@ static const char * usage =
 "  -l | --log      print all messages including logging messages\n"
 #endif
 "  -q | --quiet    be quiet and do not print any messages\n" 
-"  -t | --track    track line information for clauses\n"
+"  -t | --track    track more detailed addition and deletion information\n"
 "  -v | --verbose  enable verbose messages\n"
 "  -V | --version  print version only\n"
 "\n"
+"  --no-binary     synonym to '-a' or '--ascii'\n"
 "  --no-check      disable checking clauses (default without CNF)\n"
 "  --no-trim       disable trimming (assume all clauses used)\n"
+"\n"
+"  --relax         ignore deletion of clauses which were never added\n"
 "\n"
 "and '<file> ...' is a non-empty list of at most four DIMACS and LRAT files:\n"
 "\n"
@@ -37,36 +41,40 @@ static const char * usage =
 "the proof is trimmed only in memory producing trimming statistics.\n"
 "\n"
 "If an input CNF is also specified then it is assumed to be in DIMACS format\n"
-"and parsed before reading the LRAT proof.  Providing a CNF allows to check\n"
-"and not only trim a proof.  If checking fails an error message is produced\n"
-"and the program aborts with a non-zero exit code.  If checking succeeds\n"
-"the exit code is zero. If further an empty clause was found 's VERIFIED'\n"
-"is printed.\n"
+"and parsed before reading the LRAT proof.  Providing a CNF triggers to\n"
+"check and not only trim a proof.  If checking fails an error message is\n"
+"produced and the program aborts with exit code '1'.  If checking succeeds\n"
+"the exit code is '0', if no empty clause was derived. Otherwise if the CNF\n"
+"or proof contains an empty clause and checking succeeds, then the exit\n"
+"code is '20', i.e., the same exit code as for unsatisfiable formulas in\n"
+"the SAT competition.  In this case 's VERIFIED' is printed too.\n"
 "\n"
 "The status of clauses, i.e., whether they are added or have been deleted\n"
-"is always tracked and checked precisely.  It is considered and error if\n"
-"a clause is used in a proof line which been deleted before.  In order to\n"
+"is always tracked and checked precisely.  It is considered an error if\n"
+"a clause is used in a proof line which was deleted before.  In order to\n"
 "determine in which proof line exactly the offending clause was deleted\n"
-"the user can specify '--track' to track this information which\n"
-"will then yield a more informative error message.\n"
+"the user can additionally specify '--track' to track this information,\n"
+"which can then give a more informative error message.\n"
 "\n"
-"If the CNF or the proof contains an empty clause, then proof checking\n"
-"is restricted to the trimmed proof.  Without empty clause, neither in\n"
-"the CNF nor in the proof, trimming is skipped.  The same effect can be\n"
-"achieved by using '--no-trimming', which has the additional benefit to\n"
+"If the CNF or the proof contains an empty clause, proof checking is by\n"
+"default restricted to the trimmed proof.  Without empty clause, neither\n"
+"in the CNF nor in the proof, trimming is skipped.  The same effect can\n"
+"be achieved by using '--no-trim', which has the additional benefit to\n"
 "enforce forward on-the-fly checking while parsing the proof. This mode\n"
 "allows to delete clauses eagerly and gives the chance to reduce memory\n"
-"usage substantially.  Without trimming no output files are written.\n"
+"usage substantially.\n"
 "\n"
-"At most one of the input path names can be '-' which leads to reading the\n"
-"corresponding input from '<stdin>'.  Similarly using '-' for one of the\n"
-"outputs writes to '<stdout>'.  When exactly two files are given the first\n"
-"file is opened and read first and its format (LRAT or DIMACS) is determined\n"
-"by checking the first read character ('p' or 'c' gives DIMACS format).\n"
-"This then also determines the type of the second file as proof output or\n"
-"input.  Two files can not have the same specified file path except for '-'\n"
-"and '/dev/null'.  The latter is a hard-coded name and will not actually be\n"
-"opened nor written to '/dev/null' (whether it exists or not on the system).\n"
+"At most one of the input path names can be '-' which leads to reading\n"
+"the corresponding input from '<stdin>'.  Similarly using '-' for one\n"
+"of the output files writes to '<stdout>'.  When exactly two files are\n"
+"given the first file is opened and read first and to determine its format\n"
+"(LRAT or DIMACS) by checking the first read character ('p' or 'c' gives\n"
+"DIMACS format).  The result also determines the type of the second file\n"
+"as either proof output or as proof input.  Two files can not have the\n"
+"same specified file path except for '-' and '/dev/null'.  The latter is a\n"
+"hard-coded name and will not actually be opened nor written to '/dev/null'\n"
+"(whether it exists or not on the system).\n"
+
 ;
 
 // clang-format on
@@ -85,8 +93,9 @@ struct file {
   FILE *file;
   size_t bytes;
   size_t lines;
-  int close;
-  int eof;
+  bool binary;
+  char close;
+  bool eof;
   int last;
   int saved;
 };
@@ -111,21 +120,8 @@ struct ints_map {
   int **begin, **end;
 };
 
-struct addition {
-  size_t line;
-};
-
-struct deletion {
-  size_t line;
-  int id;
-};
-
-struct addition_map {
-  struct addition *begin, *end;
-};
-
-struct deletion_map {
-  struct deletion *begin, *end;
+struct size_t_map {
+  size_t *begin, *end;
 };
 
 struct statistics {
@@ -167,6 +163,7 @@ struct {
   struct file *input, *output;
 } cnf, proof;
 
+static const char *ascii;
 static const char *force;
 static const char *forward;
 static const char *nocheck;
@@ -176,12 +173,16 @@ static int verbosity;
 
 static bool checking;
 static bool trimming;
+static bool relax;
 
 static int empty_clause;
 static int last_clause_added_in_cnf;
 static int first_clause_added_in_proof;
 
-static struct { struct char_map values; } variables;
+static struct {
+  struct char_map values;
+  int original;
+} variables;
 
 static struct int_stack trail;
 
@@ -189,11 +190,12 @@ static struct {
   struct char_map status;
   struct ints_map literals;
   struct ints_map antecedents;
-  struct deletion_map deleted;
-  struct addition_map added;
-  struct int_map used;
+  struct size_t_map deleted;
+  struct size_t_map added;
+  struct int_map referenced;
   struct int_map heads;
   struct int_map links;
+  struct int_map used;
   struct int_map map;
 } clauses;
 
@@ -215,12 +217,18 @@ static void die (const char *fmt, ...) {
 
 static void prr (const char *fmt, ...) {
   assert (input.path);
-  size_t line = input.lines + 1;
-  if (input.last == '\n')
-    line--;
-  fprintf (stderr,
-           "lrat-trim: parse error in '%s' %s line %zu: ", input.path,
-           input.eof && input.last == '\n' ? "after" : "in", line);
+  if (input.binary) {
+    fprintf (stderr,
+             "lrat-trim: parse error in '%s' after reading %zu bytes: ",
+             input.path, input.bytes);
+  } else {
+    size_t line = input.lines + 1;
+    if (input.last == '\n')
+      line--;
+    fprintf (stderr,
+             "lrat-trim: parse error in '%s' %s line %zu: ", input.path,
+             input.eof && input.last == '\n' ? "after" : "in", line);
+  }
   va_list ap;
   va_start (ap, fmt);
   vfprintf (stderr, fmt, ap);
@@ -264,6 +272,97 @@ static void wrn (const char *fmt, ...) {
   fputc ('\n', stdout);
   fflush (stdout);
 }
+
+#define size_pretty_buffer 256
+#define num_pretty_buffers 2
+
+static char pretty_buffer[num_pretty_buffers][size_pretty_buffer];
+static int current_pretty_buffer;
+
+static char *next_pretty_buffer () {
+  char *res = pretty_buffer[current_pretty_buffer++];
+  if (current_pretty_buffer == num_pretty_buffers)
+    current_pretty_buffer = 0;
+  return res;
+}
+
+static const char *pretty_bytes (size_t bytes) {
+  char *buffer = next_pretty_buffer ();
+  double kb = bytes / (double)(1u << 10);
+  double mb = bytes / (double)(1u << 20);
+  double gb = bytes / (double)(1u << 30);
+  if (kb < 1)
+    snprintf (buffer, size_pretty_buffer, "%zu bytes", bytes);
+  else if (mb < 1)
+    snprintf (buffer, size_pretty_buffer, "%zu bytes %.1f KB", bytes, kb);
+  else if (gb < 1)
+    snprintf (buffer, size_pretty_buffer, "%zu bytes %.1f MB", bytes, mb);
+  else
+    snprintf (buffer, size_pretty_buffer, "%zu bytes %.1f GB", bytes, gb);
+  assert (strlen (buffer) < size_pretty_buffer);
+  return buffer;
+}
+
+#ifdef COVERAGE
+
+// This part of the code enclosed with '#ifdef COVERAGE' is only useful
+// during testing and debugging and should not be used in production by
+// keeping 'COVERAGE' undefined.
+
+// The motivation for having this is that 'lrat-trim' is meant to be robust
+// in terms of producing error messages if it runs out-of-memory and not
+// just give a segmentation fault if it does.
+
+// In order to test 'out-of-memory' errors and produce coverage we replace
+// the standard allocation functions with dedicated allocators which fail
+// after a given number of allocated bytes specified through the environment
+// variable 'LRAT_TRIM_ALLOCATION_LIMIT'.
+
+#define size_allocation_lines ((size_t)(1u << 12))
+
+static size_t allocation_lines[size_allocation_lines];
+static bool allocation_limit_set;
+static size_t allocation_limit;
+static size_t allocated_bytes;
+
+static bool check_allocation (size_t line, size_t bytes) {
+  assert (bytes);
+  if (!allocation_limit_set) {
+    const char *env = getenv ("LRAT_TRIM_ALLOCATION_LIMIT");
+    allocation_limit = env ? atol (env) : ~(size_t)0;
+    printf ("c COVERED allocated bytes limit %zu\n", allocation_limit);
+    allocation_limit_set = true;
+  }
+  assert (line < size_allocation_lines);
+  if (!allocation_lines[line])
+    printf ("c COVERED allocation at line %zu after allocating %zu bytes\n",
+            line, allocated_bytes);
+#ifdef LOGGING
+  if (verbosity == INT_MAX)
+    printf ("c COVERED allocating %zu bytes at line %zu\n", bytes, line);
+#endif
+  allocation_lines[line] += bytes;
+  allocated_bytes += bytes;
+  return allocated_bytes <= allocation_limit;
+}
+
+static void *coverage_malloc (size_t line, size_t bytes) {
+  return check_allocation (line, bytes) ? malloc (bytes) : 0;
+}
+
+static void *coverage_calloc (size_t line, size_t n, size_t bytes) {
+  return check_allocation (line, n * bytes) ? calloc (n, bytes) : 0;
+}
+
+static void *coverage_realloc (size_t line, void *p, size_t bytes) {
+  return check_allocation (line, bytes) ? realloc (p, bytes) : 0;
+}
+
+#define malloc(BYTES) coverage_malloc (__LINE__, BYTES)
+#define calloc(N, BYTES) coverage_calloc (__LINE__, N, BYTES)
+#define realloc(P, BYTES) coverage_realloc (__LINE__, P, BYTES)
+
+#endif
 
 #define ZERO(E) \
   do { \
@@ -409,7 +508,7 @@ static void logging_suffix () {
 #define size_buffer (1u << 20)
 
 struct buffer {
-  char chars[size_buffer];
+  unsigned char chars[size_buffer];
   size_t pos, end;
 } buffer;
 
@@ -425,18 +524,20 @@ static size_t fill_buffer () {
 // having declared them as 'inline'.
 
 static inline int read_buffer (void) __attribute__ ((always_inline));
-static inline void count_read (int ch) __attribute__ ((always_inline));
-static inline int read_char (void) __attribute__ ((always_inline));
+
+static inline void count_ascii (int ch) __attribute__ ((always_inline));
+static inline int read_ascii (void) __attribute__ ((always_inline));
+
+static inline void count_binary (int ch) __attribute__ ((always_inline));
+static inline int read_binary (void) __attribute__ ((always_inline));
 
 static inline int read_buffer (void) {
-  if (buffer.pos == buffer.end && !fill_buffer ()) {
-    input.eof = true;
+  if (buffer.pos == buffer.end && !fill_buffer ())
     return EOF;
-  }
   return buffer.chars[buffer.pos++];
 }
 
-static inline void count_read (int ch) {
+static inline void count_ascii (int ch) {
   if (ch == '\n')
     input.lines++;
   if (ch != EOF) {
@@ -445,16 +546,35 @@ static inline void count_read (int ch) {
   }
 }
 
-static inline int read_char (void) {
+static inline int read_ascii (void) {
   assert (input.file);
+  assert (!input.binary);
   assert (input.saved == EOF);
   int res = read_buffer ();
+  if (res == EOF)
+    input.eof = true;
   if (res == '\r') {
     res = read_buffer ();
+    if (res == EOF)
+      input.eof = true;
     if (res != '\n')
       prr ("carriage-return without following new-line");
   }
-  count_read (res);
+  count_ascii (res);
+  return res;
+}
+
+static inline void count_binary (int ch) {
+  if (ch != EOF)
+    input.bytes++;
+}
+
+static inline int read_binary (void) {
+  assert (input.file);
+  assert (input.binary);
+  assert (input.saved == EOF);
+  int res = read_buffer ();
+  count_binary (res);
   return res;
 }
 
@@ -473,27 +593,34 @@ static inline int read_char (void) {
 // code of the inlined 'read_char' and 'isdigit'.
 
 static int read_first_char (void) {
-  assert (input.file);
+  if (!input.file)
+    return EOF;
   int res = input.saved;
   if (res == EOF)
-    res = read_char ();
+    res = read_ascii ();
   else
     input.saved = EOF;
   return res;
 }
 
 static void flush_buffer () {
-  assert (output.file);
   size_t bytes = buffer.pos;
   if (!bytes)
     return;
+  if (!output.file) {
+    buffer.pos = 0;
+    return;
+  }
   size_t written = fwrite (buffer.chars, 1, bytes, output.file);
-  if (written != bytes) {
-    if (output.path)
-      die ("flushing %zu bytes of write buffer to '%s' failed", bytes,
-           output.path);
-    else
-      die ("flushing %zu bytes of write buffer failed", bytes);
+  bool failed = (written != bytes);
+#ifdef COVERAGE
+  if (getenv ("LRAT_TRIM_FAKE_FRWRITE_FAILURE"))
+    failed = true;
+#endif
+  if (failed) {
+    assert (output.path);
+    die ("flushing %zu bytes of write-buffer to '%s' failed", bytes,
+         output.path);
   }
   buffer.pos = 0;
 }
@@ -535,6 +662,22 @@ static inline void write_int (int i) {
     write_char ('0');
 }
 
+static char size_t_buffer[32];
+
+static inline void write_size_t (size_t i) {
+  if (i) {
+    char *p = size_t_buffer + sizeof size_t_buffer - 1;
+    assert (!*p);
+    size_t tmp = i;
+    while (tmp) {
+      *--p = '0' + (tmp % 10);
+      tmp /= 10;
+    }
+    write_str (p);
+  } else
+    write_char ('0');
+}
+
 #include <sys/resource.h>
 #include <sys/time.h>
 #include <unistd.h>
@@ -542,8 +685,7 @@ static inline void write_int (int i) {
 static double process_time () {
   struct rusage u;
   double res;
-  if (getrusage (RUSAGE_SELF, &u))
-    return 0;
+  (void)getrusage (RUSAGE_SELF, &u);
   res = u.ru_utime.tv_sec + 1e-6 * u.ru_utime.tv_usec;
   res += u.ru_stime.tv_sec + 1e-6 * u.ru_stime.tv_usec;
   return res;
@@ -551,8 +693,7 @@ static double process_time () {
 
 static size_t maximum_resident_set_size (void) {
   struct rusage u;
-  if (getrusage (RUSAGE_SELF, &u))
-    return 0;
+  (void)getrusage (RUSAGE_SELF, &u);
   return ((size_t)u.ru_maxrss) << 10;
 }
 
@@ -595,7 +736,8 @@ static void backtrack () {
   CLEAR (trail);
 }
 
-static inline signed char assigned_literal (int) __attribute ((always_inline));
+static inline signed char assigned_literal (int)
+    __attribute ((always_inline));
 
 static inline signed char assigned_literal (int lit) {
   assert (lit);
@@ -618,17 +760,27 @@ static void crr (int id, const char *fmt, ...) {
   va_end (ap);
   fprintf (stderr, " while checking clause '%d'", id);
   if (track) {
-    struct addition *addition = &ACCESS (clauses.added, id);
-    fprintf (stderr, " at line '%zu' ", addition->line);
+    size_t *addition = &ACCESS (clauses.added, id);
+    fprintf (stderr, " at line '%zu' ", *addition);
     assert (proof.input);
     assert (proof.input->path);
     fprintf (stderr, "in '%s'", proof.input->path);
+    if (verbosity <= 0)
+      fputs (" (use '-v' to print clause)", stderr);
+  } else if (verbosity > 0)
+    fputs (" (run with '-t' to track line information)", stderr);
+  else
+    fputs (" (run with '-t' to track line information and "
+           "'-v' to print the actual clause)",
+           stderr);
+  if (verbosity > 0) {
+    fputs (": ", stderr);
+    int *l = ACCESS (clauses.literals, id);
+    while (*l)
+      fprintf (stderr, "%d ", *l++);
+    fputc ('0', stderr);
   }
-  fputs (": ", stderr);
-  int * l = ACCESS (clauses.literals, id);
-  while (*l)
-    fprintf (stderr, "%d ", *l++);
-  fputs ("0\n", stderr);
+  fputc ('\n', stderr);
   exit (1);
 }
 
@@ -665,7 +817,7 @@ static void check_clause (int id, int *literals, int *antecedents) {
       signed char value = assigned_literal (lit);
       if (value < 0)
         continue;
-      if (unit)
+      if (unit && unit != lit)
         crr (id, "antecedent '%d' does not produce unit", aid);
       unit = lit;
       if (!value)
@@ -683,8 +835,9 @@ static void check_clause (int id, int *literals, int *antecedents) {
 }
 
 static inline bool is_original_clause (int id) {
-  return !id || !first_clause_added_in_proof ||
-         id < first_clause_added_in_proof;
+  int abs_id = abs (id);
+  return !abs_id || !first_clause_added_in_proof ||
+         abs_id < first_clause_added_in_proof;
 }
 
 // Apparently the hot-spot of the parser is checking the loop condition for
@@ -718,12 +871,12 @@ static const char *exceeds_int_max (int n, int ch) {
   static char buffer[32];
   const size_t size = sizeof buffer - 5;
   assert (ISDIGIT (ch));
-  sprintf (buffer, "%d", n);
+  snprintf (buffer, sizeof buffer, "%d", n);
   size_t i = strlen (buffer);
   do {
     assert (i < sizeof buffer);
     buffer[i++] = ch;
-  } while (i < size && ISDIGIT (ch = read_char ()));
+  } while (i < size && ISDIGIT (ch = read_ascii ()));
   if (ch == '\n') {
     assert (input.lines);
     input.lines--;
@@ -747,24 +900,24 @@ static void parse_cnf () {
   input = *cnf.input;
   msg ("reading CNF from '%s'", input.path);
   int ch;
-  for (ch = read_first_char (); ch != 'p'; ch = read_char ())
+  for (ch = read_first_char (); ch != 'p'; ch = read_ascii ())
     if (ch != 'c')
       prr ("expected 'c' or 'p' as first character");
     else
-      while ((ch = read_char ()) != '\n')
+      while ((ch = read_ascii ()) != '\n')
         if (ch == EOF)
-          prr ("unexpected end-of-file in comment before header");
-  if (read_char () != ' ')
+          prr ("end-of-file in comment before header");
+  if (read_ascii () != ' ')
     prr ("expected space after 'p'");
-  if (read_char () != 'c' || read_char () != 'n' || read_char () != 'f')
+  if (read_ascii () != 'c' || read_ascii () != 'n' || read_ascii () != 'f')
     prr ("expected 'p cnf'");
-  if (read_char () != ' ')
+  if (read_ascii () != ' ')
     prr ("expected space after 'p cnf'");
-  ch = read_char ();
+  ch = read_ascii ();
   if (!ISDIGIT (ch))
     prr ("expected digit after 'p cnf '");
   int header_variables = ch - '0';
-  while (ISDIGIT (ch = read_char ())) {
+  while (ISDIGIT (ch = read_ascii ())) {
     if (INT_MAX / 10 < header_variables)
     NUMBER_OF_VARIABLES_EXCEEDS_INT_MAX:
       prr ("number of variables '%s' exceeds 'INT_MAX'",
@@ -779,11 +932,11 @@ static void parse_cnf () {
   }
   if (ch != ' ')
     prr ("expected space after 'p cnf %d", header_variables);
-  ch = read_char ();
+  ch = read_ascii ();
   if (!ISDIGIT (ch))
     prr ("expected digit after 'p cnf %d '", header_variables);
   int header_clauses = ch - '0';
-  while (ISDIGIT (ch = read_char ())) {
+  while (ISDIGIT (ch = read_ascii ())) {
     if (INT_MAX / 10 < header_clauses)
     NUMBER_OF_CLAUSES_EXCEEDS_INT_MAX:
       prr ("number of clauses '%s' exceeds 'INT_MAX'",
@@ -796,6 +949,8 @@ static void parse_cnf () {
     }
     header_clauses += digit;
   }
+  while (ch == ' ')
+    ch = read_ascii ();
   if (ch != '\n')
     prr ("expected new-line after 'p cnf %d %d'", header_variables,
          header_clauses);
@@ -807,7 +962,7 @@ static void parse_cnf () {
   struct int_stack parsed_literals;
   ZERO (parsed_literals);
   for (;;) {
-    ch = read_char ();
+    ch = read_ascii ();
     if (ch == ' ' || ch == '\t' || ch == '\n')
       continue;
     if (ch == EOF) {
@@ -824,14 +979,14 @@ static void parse_cnf () {
     }
     if (ch == 'c') {
     SKIP_COMMENT_AFTER_HEADER:
-      while ((ch = read_char ()) != '\n')
+      while ((ch = read_ascii ()) != '\n')
         if (ch == EOF)
-          prr ("unexpected end-of-file in comment after header");
+          prr ("end-of-file in comment after header");
       continue;
     }
     int sign;
     if (ch == '-') {
-      ch = read_char ();
+      ch = read_ascii ();
       if (!ISDIGIT (ch))
         prr ("expected digit after '-'");
       if (ch == '0')
@@ -843,7 +998,7 @@ static void parse_cnf () {
       sign = 1;
     }
     int idx = ch - '0';
-    while (ISDIGIT (ch = read_char ())) {
+    while (ISDIGIT (ch = read_ascii ())) {
       if (!idx)
         prr ("unexpected digit '%c' after '0'", ch);
       if (INT_MAX / 10 < idx)
@@ -884,6 +1039,11 @@ static void parse_cnf () {
       CLEAR (parsed_literals);
       assert (parsed_clauses < SIZE (clauses.status));
       clauses.status.begin[parsed_clauses] = 1;
+      if (size_literals == 1 && !empty_clause) {
+        vrb ("found empty original clause %d", parsed_clauses);
+        statistics.clauses.checked.empty++;
+        empty_clause = parsed_clauses;
+      }
     }
     if (ch == 'c')
       goto SKIP_COMMENT_AFTER_HEADER;
@@ -896,8 +1056,8 @@ static void parse_cnf () {
     fclose (input.file);
   *cnf.input = input;
 
-  vrb ("read %zu CNF lines with %zu bytes (%.0f MB)", input.lines,
-       input.bytes, input.bytes / (double)(1 << 20));
+  vrb ("read %zu CNF lines with %s", input.lines,
+       pretty_bytes (input.bytes));
 
   last_clause_added_in_cnf = parsed_clauses;
   msg ("parsed CNF with %zu added clauses", statistics.original.cnf.added);
@@ -906,6 +1066,111 @@ static void parse_cnf () {
   vrb ("finished parsing CNF after %.2f seconds", end);
   msg ("parsing original CNF took %.2f seconds and needed %.0f MB memory",
        duration, mega_bytes ());
+
+  variables.original = header_variables;
+}
+
+static size_t ignored_deletions = 0;
+static struct int_stack parsed_literals;
+static struct int_stack parsed_antecedents;
+
+static void delete_antecedent (int other, bool binary, size_t info) {
+  if (!first_clause_added_in_proof)
+    ADJUST (clauses.status, other);
+
+  signed char *status_ptr = &ACCESS (clauses.status, other);
+  signed char status = *status_ptr;
+  *status_ptr = -1;
+
+  size_t *other_deletion = 0;
+
+  // Allocate deletion tracking information if needed.
+
+  if (track) {
+    ADJUST (clauses.deleted, other);
+    other_deletion = &ACCESS (clauses.deleted, other);
+  }
+
+  // First check the two problematic cases, where the clause
+  // requested to be deleted was never added or if it was added but
+  // is already deleted.
+
+  if (!status) { // Never added.
+
+    if (!last_clause_added_in_cnf && !first_clause_added_in_proof)
+      ignored_deletions++; // No CNF and no clause added (yet).
+    else if (relax)
+      ignored_deletions++;
+    else
+      prr ("deleted clause '%d' at %s %zu"
+           "is neither an original clause nor has been added "
+           "(use '--relax' to ignore such deletions)",
+           other, binary ? "byte" : "line", info);
+
+  } else if (status < 0) { // Already deleted.
+
+    if (relax)
+      ignored_deletions++;
+    else if (track) {
+      assert (*other_deletion);
+      prr ("clause %d requested to be deleted at %s %zu"
+           "was already deleted at %s %zu "
+           "(use '--relax' to ignore such deletions)",
+           other, binary ? "byte" : "line", info, binary ? "byte" : "line",
+           *other_deletion);
+    } else
+      prr ("clause %d requested to be deleted "
+           "at %s %zu was already deleted before "
+           "(use '--relax' to ignore such deletions and "
+           "with '--track' for more information)",
+           other, binary ? "byte" : "line", info);
+  }
+
+  // Deletion tracking information needs to be set if tracking is
+  // requested and the clause was never added or got now deleted.
+
+  if (track && status >= 0) {
+    dbg ("marked clause %d to be deleted at %s %zu", other,
+         binary ? "byte" : "line", info);
+    *other_deletion = info;
+  }
+
+  if (status >= 0) {
+    if (is_original_clause (other))
+      statistics.original.cnf.deleted++;
+    else
+      statistics.original.proof.deleted++;
+  }
+
+  // We want to delete the literals of the deleted clause eagerly as
+  // early as possible to save memory, i.e., while forward checking.
+
+  bool delete_literals_eagerly;
+  if (checking)
+    delete_literals_eagerly = forward;
+  else
+    delete_literals_eagerly = !trimming;
+
+  if (delete_literals_eagerly) {
+
+    assert (!proof.output);
+    assert (!cnf.output);
+
+    assert (EMPTY (clauses.antecedents));
+
+    // TODO the logic here needs documentation!!!!
+
+    if (!relax || other < SIZE (clauses.literals)) {
+
+      int **l = &ACCESS (clauses.literals, other);
+      free (*l);
+      *l = 0;
+    }
+  }
+
+#if !defined(NDEBUG) || defined(LOGGING)
+  PUSH (parsed_antecedents, other);
+#endif
 }
 
 static void parse_proof () {
@@ -914,162 +1179,188 @@ static void parse_proof () {
   assert (proof.input);
   input = *proof.input;
   msg ("reading proof from '%s'", input.path);
-  fill_buffer ();
-  int last_id = 0;
+
   int ch = read_first_char ();
-  struct int_stack parsed_literals;
-  struct int_stack parsed_antecedents;
-  ZERO (parsed_literals);
-  ZERO (parsed_antecedents);
-  size_t line = 0;
-  bool first = true;
+  if (ch == 'a' || ch == 'd') {
+    vrb ("first character '%c' indicates binary proof format", ch);
+    input.binary = true;
+  } else if (isdigit (ch)) {
+    vrb ("first character '%c' indicates ASCII proof format", ch);
+    assert (!input.binary);
+  } else if (ch == 'c' || ch == 'p')
+    prr ("unexpected '%c' as first character: "
+         "did you use a CNF instead of a proof file?",
+         ch);
+  else if (ch != EOF) {
+    if (isprint (ch))
+      prr ("unexpected first character '%c'", ch);
+    else
+      prr ("unexpected first byte '0x02%x'", (unsigned)ch);
+  }
+
+  // To track in the binary proof format we use byte offsets instead of line
+  // numbers.  This information is used in debugging and error messages and
+  // 'trick' is used to tell this difference (using 'byte' vs. 'line').  For
+  // the binary format we also do not have deletion line identifiers.
+
+  const bool binary = input.binary;
+
+  int last_id = 0;
+
   while (ch != EOF) {
-    if (!isdigit (ch)) {
-      if (first && (ch == 'c' || ch == 'p'))
-        prr ("unexpected '%c' as first character: "
-             "did you use a CNF instead of a proof file?",
-             ch);
-      else
+
+    const size_t info = (binary ? input.bytes : input.lines) + 1;
+    int id, type = 0;
+
+    if (binary) {
+      assert (ch == 'a' || ch == 'd');
+      if (ch != 'a' && ch != 'd')
+        prr ("expected either 'a' or 'd'");
+      type = ch;
+      if (ch == 'a') {
+        ch = read_binary ();
+        if (ch == EOF)
+          prr ("end-of-file after '%c'", type);
+        if (ch) {
+          unsigned uid = 0, shift = 0;
+          for (;;) {
+            unsigned uch = ch;
+            if (shift == 28 && (uch & ~15u))
+              prr ("excessive clause identifier");
+            uid |= (uch & 127) << shift;
+            if (!(uch & 128))
+              break;
+            shift += 7;
+            ch = read_binary ();
+            if (!ch)
+              prr ("invalid trailing zero byte in clause identifier");
+            if (ch == EOF)
+              prr ("end-of-file parsing clause identifier");
+          }
+	  if (uid > (unsigned) INT_MAX)
+	    prr ("clause identifier %u too large", uid);
+          id = uid;
+        } else
+          id = 0;
+        dbg ("parsed clause identifier %d at byte %zu", id, info);
+      } else
+        id = last_id;
+    } else {	// !binary
+      if (!isdigit (ch))
         prr ("expected digit as first character of line");
-    }
-    first = false;
-    line = input.lines;
-    int id = ch - '0';
-    while (ISDIGIT (ch = read_char ())) {
-      if (!id)
-        prr ("unexpected digit '%c' after '0'", ch);
-      if (INT_MAX / 10 < id)
-      LINE_IDENTIFIER_EXCEEDS_INT_MAX:
-        prr ("line identifier '%s' exceeds 'INT_MAX'",
-             exceeds_int_max (id, ch));
-      id *= 10;
-      int digit = ch - '0';
-      if (INT_MAX - digit < id) {
-        id /= 10;
-        goto LINE_IDENTIFIER_EXCEEDS_INT_MAX;
+      id = ch - '0';
+      while (ISDIGIT (ch = read_ascii ())) {
+        if (!id)
+          prr ("unexpected digit '%c' after '0'", ch);
+        if (INT_MAX / 10 < id)
+        LINE_IDENTIFIER_EXCEEDS_INT_MAX:
+          prr ("line identifier '%s' exceeds 'INT_MAX'",
+               exceeds_int_max (id, ch));
+        id *= 10;
+        int digit = ch - '0';
+        if (INT_MAX - digit < id) {
+          id /= 10;
+          goto LINE_IDENTIFIER_EXCEEDS_INT_MAX;
+        }
+        id += digit;
       }
-      id += digit;
+      if (ch != ' ')
+        prr ("expected space after identifier '%d'", id);
+      dbg ("parsed clause identifier %d at line %zu", id, info);
+      ch = read_ascii ();
+      if (ch == 'd') {
+        ch = read_ascii ();
+        if (ch != ' ')
+          prr ("expected space after '%d d'", id);
+        type = 'd';
+      } else
+        type = 'a';
     }
-    if (ch != ' ')
-      prr ("expected space after identifier '%d'", id);
     if (id < last_id)
       prr ("identifier '%d' smaller than last '%d'", id, last_id);
-    dbg ("parsed clause identifier %d at line %zu", id, line + 1);
     ADJUST (clauses.status, id);
-    ch = read_char ();
-    if (ch == 'd') {
-      ch = read_char ();
-      if (ch != ' ')
-        prr ("expected space after '%d d' in deletion %d", id, id);
+    if (type == 'd') {
       assert (EMPTY (parsed_antecedents));
       int last = 0;
-      do {
-        ch = read_char ();
-        if (!ISDIGIT (ch)) {
-          if (last)
-            prr ("expected digit after '%d ' in deletion %d", last, id);
-          else
-            prr ("expected digit after '%d d ' in deletion %d", id, id);
-        }
-        int other = ch - '0';
-        while (ISDIGIT ((ch = read_char ()))) {
-          if (!other)
-            prr ("unexpected digit '%c' after '0' in deletion %d", ch, id);
-          if (INT_MAX / 10 < other)
-          DELETED_CLAUSE_IDENTIFIER_EXCEEDS_INT_MAX:
-            prr ("deleted clause identifier '%s' exceeds 'INT_MAX' "
-                 "in deletion %d",
-                 exceeds_int_max (other, ch), id);
-          other *= 10;
-          int digit = ch - '0';
-          if (INT_MAX - digit < other) {
-            other /= 10;
-            goto DELETED_CLAUSE_IDENTIFIER_EXCEEDS_INT_MAX;
+      if (binary) {
+        do {
+          int other;
+          ch = read_binary ();
+          if (ch == EOF)
+            prr ("end-of-file before zero byte in deletion");
+          if (ch & 1)
+            prr ("invalid negative antecedent in deletion");
+          if (ch) {
+            unsigned uother = 0, shift = 0;
+            for (;;) {
+              unsigned uch = ch;
+              if (shift == 28 && (uch & ~15u))
+                prr ("excessive antecedent in deletion");
+              uother |= (uch & 127) << shift;
+              if (!(uch & 128))
+                break;
+              shift += 7;
+              ch = read_binary ();
+              if (!ch)
+                prr ("invalid trailing zero byte in antecedent deletion");
+              if (ch == EOF)
+                prr ("end-of-file parsing antecedent in deletion");
+            }
+            other = (uother >> 1);
+          } else
+            other = 0;
+          if (other)
+            delete_antecedent (other, binary, info);
+          last = other;
+        } while (last);
+      } else { // !binary
+        do {
+          int other;
+          ch = read_ascii ();
+          if (!ISDIGIT (ch)) {
+            if (last)
+              prr ("expected digit after '%d ' in deletion", last);
+            else
+              prr ("expected digit after '%d d ' in deletion", id);
           }
-          other += digit;
-        }
-        if (other) {
-          if (ch != ' ')
-            prr ("expected space after '%d' in deletion %d", other, id);
-          if (id && other > id)
-            prr ("deleted clause '%d' "
-                 "larger than deletion identifier '%d'",
-                 other, id);
-          if (!first_clause_added_in_proof)
-            ADJUST (clauses.status, other);
-          signed char *status_ptr = &ACCESS (clauses.status, other);
-          signed char status = *status_ptr;
-          *status_ptr = -1;
-          if (!status && first_clause_added_in_proof) {
-            assert (first_clause_added_in_proof <= other);
-            prr ("deleted clause '%d' in deletion %d "
-                 "is neither an original clause nor has been added",
-                 other, id);
+          other = ch - '0';
+          while (ISDIGIT ((ch = read_ascii ()))) {
+            if (!other)
+              prr ("unexpected digit '%c' after '0' in deletion", ch);
+            if (INT_MAX / 10 < other)
+            DELETED_CLAUSE_IDENTIFIER_EXCEEDS_INT_MAX:
+              prr ("deleted clause identifier '%s' exceeds 'INT_MAX'",
+                   exceeds_int_max (other, ch));
+            other *= 10;
+            int digit = ch - '0';
+            if (INT_MAX - digit < other) {
+              other /= 10;
+              goto DELETED_CLAUSE_IDENTIFIER_EXCEEDS_INT_MAX;
+            }
+            other += digit;
           }
-          if (track) {
-            ADJUST (clauses.deleted, other);
-            struct deletion *other_deletion =
-                &ACCESS (clauses.deleted, other);
-            if (!status && first_clause_added_in_proof) {
-              assert (first_clause_added_in_proof <= other);
-              prr ("deleted clause '%d' in deletion %d "
-                   "is neither an original clause nor has been added",
+          if (other) {
+            if (ch != ' ')
+              prr ("expected space after '%d' in deletion", other);
+            if (id && other > id)
+              prr ("deleted clause '%d' "
+                   "larger than deletion identifier '%d'",
                    other, id);
-            } else if (status < 0) {
-              assert (other_deletion->id);
-              assert (other_deletion->line);
-              prr ("clause %d requested to be deleted in deletion %d "
-                   "was already deleted in deletion %d at line %zu",
-                   other, id, other_deletion->id, other_deletion->line);
-            }
-            *status_ptr = -1;
-            size_t deleted_line = input.lines + 1;
-            dbg ("marked clause %d to be deleted "
-                 "at line %zu in deletion %d",
-                 other, deleted_line, id);
-            other_deletion->line = deleted_line;
-            other_deletion->id = id;
-          } else if (status < 0)
-            prr ("clause %d requested to be deleted in deletion %d "
-                 "was already deleted before "
-                 "(run with '--track-deleted' for more information)",
-                 other, id);
-          if (is_original_clause (id))
-            statistics.original.cnf.deleted++;
-          else
-            statistics.original.proof.deleted++;
-          if (!trimming || (checking && forward)) {
-            assert (!proof.output);
-            assert (!cnf.output);
-#if 0
-            if (checking && forward)
-#endif
-              assert (EMPTY (clauses.antecedents));
-#if 0
-            else if (trimming) {
-	      cov
-              int **a = &ACCESS (clauses.antecedents, other);
-              free (*a);
-              *a = 0;
-            }
-#endif
-            int **l = &ACCESS (clauses.literals, other);
-            free (*l);
-            *l = 0;
-          }
-        } else if (ch != '\n')
-          prr ("expected new-line after '0' at end of deletion %d", id);
+          } else if (ch != '\n')
+            prr ("expected new-line after '0' at end of deletion");
+          if (other)
+            delete_antecedent (other, binary, info);
+          last = other;
+        } while (last);
+      }
 #if !defined(NDEBUG) || defined(LOGGING)
-        PUSH (parsed_antecedents, other);
-#endif
-        last = other;
-      } while (last);
-#if !defined(NDEBUG) || defined(LOGGING)
+      PUSH (parsed_antecedents, 0);
       dbgs (parsed_antecedents.begin,
-            "parsed deletion %d and deleted clauses", id);
+            "parsed deletion and deleted clauses");
       CLEAR (parsed_antecedents);
 #endif
     } else {
+      assert (type == 'a'); // Adding a clause code starts here.
       if (id == last_id)
         prr ("line identifier '%d' of addition line does not increase", id);
       if (!first_clause_added_in_proof) {
@@ -1100,58 +1391,93 @@ static void parse_proof () {
         }
       }
       assert (EMPTY (parsed_literals));
-      bool first = true;
-      int last = id;
-      assert (last);
-      while (last) {
-        int sign;
-        if (first)
-          first = false;
-        else
-          ch = read_char ();
-        if (ch == '-') {
-          if (!ISDIGIT (ch = read_char ()))
-            prr ("expected digit after '%d -' in clause %d", last, id);
-          if (ch == '0')
-            prr ("expected non-zero digit after '%d -'", last);
-          sign = -1;
-        } else if (!ISDIGIT (ch))
-          prr ("expected literal or '0' after '%d ' in clause %d", last,
-               id);
-        else
-          sign = 1;
-        int idx = ch - '0';
-        while (ISDIGIT (ch = read_char ())) {
-          if (!idx)
-            prr ("unexpected second '%c' after '%d 0' in clause %d", ch,
-                 last, id);
-          if (INT_MAX / 10 < idx) {
-          VARIABLE_INDEX_EXCEEDS_INT_MAX:
-            if (sign < 0)
-              prr ("variable index in literal '-%s' "
-                   "exceeds 'INT_MAX' in clause %d",
-                   exceeds_int_max (idx, ch), id);
-            else
-              prr ("variable index '%s' exceeds 'INT_MAX' in clause %d",
-                   exceeds_int_max (idx, ch), id);
+      if (binary) {
+        for (;;) {
+          ch = read_binary ();
+          if (ch == EOF)
+            prr ("end-of-file before terminating "
+                 "zero byte in literals of clause %d",
+                 id);
+          if (!ch) {
+            PUSH (parsed_literals, 0);
+            break;
           }
-          idx *= 10;
-          int digit = ch - '0';
-          if (INT_MAX - digit < idx) {
-            idx /= 10;
-            goto VARIABLE_INDEX_EXCEEDS_INT_MAX;
+          unsigned uidx = 0, shift = 0;
+          for (;;) {
+            unsigned uch = ch;
+            if (shift == 28 && (uch & ~15u))
+              prr ("excessive literal in clause %d", id);
+            uidx |= (uch & 127) << shift;
+            if (!(uch & 128))
+              break;
+            shift += 7;
+            ch = read_binary ();
+            if (!ch)
+              prr ("invalid trailing zero byte in literal of clause %d",
+                   id);
+            if (ch == EOF)
+              prr ("end-of-file parsing literal in clause %d", id);
           }
-          idx += digit;
+          int idx = (uidx >> 1);
+          int lit = (uidx & 1) ? -idx : idx;
+          PUSH (parsed_literals, lit);
         }
-        int lit = sign * idx;
-        if (ch != ' ') {
-          if (idx)
-            prr ("expected space after literal '%d' in clause %d", lit, id);
+      } else { // !binary
+        int last = id;
+        assert (last);
+        bool first = true;
+        while (last) {
+          int sign;
+          if (first)
+            first = false;
           else
-            prr ("expected space after literals and '0' in clause %d", id);
+            ch = read_ascii ();
+          if (ch == '-') {
+            if (!ISDIGIT (ch = read_ascii ()))
+              prr ("expected digit after '%d -' in clause %d", last, id);
+            if (ch == '0')
+              prr ("expected non-zero digit after '%d -'", last);
+            sign = -1;
+          } else if (!ISDIGIT (ch))
+            prr ("expected literal or '0' after '%d ' in clause %d", last,
+                 id);
+          else
+            sign = 1;
+          int idx = ch - '0';
+          while (ISDIGIT (ch = read_ascii ())) {
+            if (!idx)
+              prr ("unexpected second '%c' after '%d 0' in clause %d", ch,
+                   last, id);
+            if (INT_MAX / 10 < idx) {
+            VARIABLE_INDEX_EXCEEDS_INT_MAX:
+              if (sign < 0)
+                prr ("variable index in literal '-%s' "
+                     "exceeds 'INT_MAX' in clause %d",
+                     exceeds_int_max (idx, ch), id);
+              else
+                prr ("variable index '%s' exceeds 'INT_MAX' in clause %d",
+                     exceeds_int_max (idx, ch), id);
+            }
+            idx *= 10;
+            int digit = ch - '0';
+            if (INT_MAX - digit < idx) {
+              idx /= 10;
+              goto VARIABLE_INDEX_EXCEEDS_INT_MAX;
+            }
+            idx += digit;
+          }
+          int lit = sign * idx;
+          if (ch != ' ') {
+            if (idx)
+              prr ("expected space after literal '%d' in clause %d", lit,
+                   id);
+            else
+              prr ("expected space after literals and '0' in clause %d",
+                   id);
+          }
+          PUSH (parsed_literals, lit);
+          last = lit;
         }
-        PUSH (parsed_literals, lit);
-        last = lit;
       }
       dbgs (parsed_literals.begin, "clause %d literals", id);
 
@@ -1169,6 +1495,7 @@ static void parse_proof () {
       if (size_literals == 1) {
         if (!empty_clause) {
           vrb ("found empty clause %d", id);
+          statistics.clauses.checked.empty++;
           empty_clause = id;
         }
       }
@@ -1176,99 +1503,125 @@ static void parse_proof () {
       CLEAR (parsed_literals);
       assert (EMPTY (parsed_antecedents));
 
-      assert (!last);
-      do {
-        int sign;
-        if ((ch = read_char ()) == '-') {
-          if (!ISDIGIT (ch = read_char ()))
-            prr ("expected digit after '%d -' in clause %d", last, id);
-          if (ch == '0')
-            prr ("expected non-zero digit after '%d -'", last);
-          sign = -1;
-        } else if (!ISDIGIT (ch))
-          prr ("expected clause identifier after '%d ' "
-               "in clause %d",
-               last, id);
-        else
-          sign = 1;
-        int other = ch - '0';
-        while (ISDIGIT (ch = read_char ())) {
-          if (!other)
-            prr ("unexpected second '%c' after '%d 0' in clause %d", ch,
+      if (binary) {
+        for (;;) {
+          ch = read_binary ();
+          if (ch == EOF)
+            prr ("end-of-file instead of antecedent in clause %d", id);
+          if (!ch) {
+            PUSH (parsed_antecedents, 0);
+            break;
+          }
+          unsigned uother = 0, shift = 0;
+          for (;;) {
+            unsigned uch = ch;
+            if (shift == 28 && (uch & ~15u))
+              prr ("excessive antecedent in clause %d", id);
+            uother |= (uch & 127) << shift;
+            if (!(uch & 128))
+              break;
+            shift += 7;
+            ch = read_binary ();
+            if (!ch)
+              prr ("invalid trailing zero byte in clause %d", id);
+            if (ch == EOF)
+              prr ("end-of-file parsing antecedent in clause %d", id);
+          }
+          int other = (uother >> 1);
+          if (uother & 1)
+            other = -other;
+          PUSH (parsed_antecedents, other);
+        }
+      } else { // !binary
+        int last = 0;
+        assert (!last);
+        do {
+          int sign;
+          if ((ch = read_ascii ()) == '-') {
+            if (!ISDIGIT (ch = read_ascii ()))
+              prr ("expected digit after '%d -' in clause %d", last, id);
+            if (ch == '0')
+              prr ("expected non-zero digit after '%d -'", last);
+            sign = -1;
+          } else if (!ISDIGIT (ch))
+            prr ("expected clause identifier after '%d ' "
+                 "in clause %d",
                  last, id);
-          if (INT_MAX / 10 < other) {
-          ANTECEDENT_IDENTIFIER_EXCEEDS_INT_MAX:
-            if (sign < 0)
-              prr ("antecedent '-%s' exceeds 'INT_MAX' in clause %d",
-                   exceeds_int_max (other, ch), id);
-            else
-              prr ("antecedent '%s' exceeds 'INT_MAX' in clause %d",
-                   exceeds_int_max (other, ch), id);
+          else
+            sign = 1;
+          int other = ch - '0';
+          while (ISDIGIT (ch = read_ascii ())) {
+            if (!other)
+              prr ("unexpected second '%c' after '%d 0' in clause %d", ch,
+                   last, id);
+            if (INT_MAX / 10 < other) {
+            ANTECEDENT_IDENTIFIER_EXCEEDS_INT_MAX:
+              if (sign < 0)
+                prr ("antecedent '-%s' exceeds 'INT_MAX' in clause %d",
+                     exceeds_int_max (other, ch), id);
+              else
+                prr ("antecedent '%s' exceeds 'INT_MAX' in clause %d",
+                     exceeds_int_max (other, ch), id);
+            }
+            other *= 10;
+            int digit = ch - '0';
+            if (INT_MAX - digit < other) {
+              other /= 10;
+              goto ANTECEDENT_IDENTIFIER_EXCEEDS_INT_MAX;
+            }
+            other += digit;
           }
-          other *= 10;
-          int digit = ch - '0';
-          if (INT_MAX - digit < other) {
-            other /= 10;
-            goto ANTECEDENT_IDENTIFIER_EXCEEDS_INT_MAX;
+          int signed_other = sign * other;
+          if (other) {
+            if (ch != ' ')
+              prr ("expected space after antecedent '%d' in clause %d",
+                   signed_other, id);
+            if (other >= id)
+              prr ("antecedent '%d' in clause %d exceeds clause",
+                   signed_other, id);
+            signed char status = ACCESS (clauses.status, other);
+            if (!status)
+              prr ("antecedent '%d' in clause %d "
+                   "is neither an original clause nor has been added",
+                   signed_other, id);
+            else if (status < 0) {
+              if (track) {
+                size_t info = ACCESS (clauses.deleted, other);
+                assert (info);
+                prr ("antecedent %d in clause %d was deleted at %s %zu",
+                     signed_other, id, binary ? "byte" : "clause", info);
+              } else
+                prr ("antecedent %d in clause %d was deleted before "
+                     "(run with '--track' for more information)",
+                     other, id);
+            }
+          } else {
+            if (ch != '\n')
+              prr ("expected new-line after '0' at end of clause %d", id);
           }
-          other += digit;
-        }
-        int signed_other = sign * other;
-        if (other) {
-          if (ch != ' ')
-            prr ("expected space after antecedent '%d' in clause %d",
-                 signed_other, id);
-          if (other >= id)
-            prr ("antecedent '%d' in clause %d exceeds clause",
-                 signed_other, id);
-          signed char s = ACCESS (clauses.status, other);
-          if (!s)
-            prr ("antecedent '%d' in clause %d "
-                 "is neither an original clause nor has been added",
-                 signed_other, id);
-          else if (s < 0) {
-            if (track) {
-              struct deletion *other_deletion =
-                  &ACCESS (clauses.deleted, other);
-              assert (other_deletion->id);
-              assert (other_deletion->line);
-              prr ("antecedent %d in clause %d "
-                   "was already deleted in deletion %d at line %zu",
-                   signed_other, id, other_deletion->id,
-                   other_deletion->line);
-            } else
-              prr ("antecedent %d in clause %d was already deleted before"
-                   "(run with '--track-deleted' for more information)",
-                   other, id);
-          }
-        } else {
-          if (ch != '\n')
-            prr ("expected new-line after '0' at end of clause %d", id);
-        }
-        PUSH (parsed_antecedents, signed_other);
-        last = signed_other;
-      } while (last);
+          PUSH (parsed_antecedents, signed_other);
+          last = signed_other;
+        } while (last);
+      }
       dbgs (parsed_antecedents.begin, "clause %d antecedents", id);
       size_t size_antecedents = SIZE (parsed_antecedents);
-      if (!size_antecedents)
-        prr ("empty list of antecedents of clause %d", id);
-      if (size_antecedents == 1)
-        prr ("single antecedent of clause %d", id);
+      assert (size_antecedents > 0);
       if (track) {
         ADJUST (clauses.added, id);
-        struct addition *addition = &ACCESS (clauses.added, id);
-        addition->line = line;
+        size_t *addition = &ACCESS (clauses.added, id);
+        *addition = info;
       }
       statistics.original.proof.added++;
       if (checking && forward) {
         check_clause (id, l, parsed_antecedents.begin);
         dbg ("forward checked clause %d", id);
-      } else if (trimming) {
+      } else if (trimming || checking) {
         size_t bytes_antecedents = size_antecedents * sizeof (int);
         int *a = malloc (bytes_antecedents);
         if (!a) {
           assert (size_antecedents);
-          die ("out-of-memory allocating antecedents of size %zu clause %d",
+          die ("out-of-memory allocating antecedents of size %zu clause "
+               "%d",
                size_antecedents - 1, id);
         }
         memcpy (a, parsed_antecedents.begin, bytes_antecedents);
@@ -1279,7 +1632,10 @@ static void parse_proof () {
       ACCESS (clauses.status, id) = 1;
     }
     last_id = id;
-    ch = read_char ();
+    if (binary) {
+      ch = read_binary ();
+      input.lines++;
+    } else ch = read_ascii ();
   }
   RELEASE (parsed_antecedents);
   RELEASE (parsed_literals);
@@ -1291,18 +1647,28 @@ static void parse_proof () {
   RELEASE (clauses.added);
   RELEASE (clauses.status);
 
-  if (!empty_clause)
-    wrn ("no empty clause added in input proof");
+  if (!empty_clause) {
+    if (cnf.input)
+      wrn ("no empty clause added in input CNF nor input proof");
+    else
+      wrn ("no empty clause added in input proof");
+  }
 
-  vrb ("read %zu proof lines with %zu bytes (%.0f MB)", input.lines,
-       input.bytes, input.bytes / (double)(1 << 20));
+  vrb ("read %zu proof lines with %s", input.lines,
+       pretty_bytes (input.bytes));
 
   msg ("parsed original proof with %zu added and %zu deleted clauses",
        statistics.original.proof.added, statistics.original.proof.deleted);
 
+  if (ignored_deletions)
+    vrb ("ignored %zu deleted clauses", ignored_deletions);
+  else
+    vrb ("no clause deletions had to be ignored");
+
   double end = process_time (), duration = end - start;
   vrb ("finished parsing proof after %.2f seconds", end);
-  msg ("parsing original proof took %.2f seconds and needed %.0f MB memory",
+  msg ("parsing original proof took %.2f seconds and needed %.0f MB "
+       "memory",
        duration, mega_bytes ());
 }
 
@@ -1376,15 +1742,19 @@ static void check_proof () {
   if (!checking || forward || !empty_clause)
     return;
 
+  if (empty_clause && (!first_clause_added_in_proof ||
+                       empty_clause < first_clause_added_in_proof))
+    return;
+
   double start = process_time ();
   vrb ("starting backward checking after %.2f seconds", start);
 
   int id = first_clause_added_in_proof;
   for (;;) {
-    int where = ACCESS (clauses.used, id);
+    int where = trimming ? ACCESS (clauses.used, id) : -1;
     if (where) {
-      int * l = ACCESS (clauses.literals, id);
-      int * a = ACCESS (clauses.antecedents, id);
+      int *l = ACCESS (clauses.literals, id);
+      int *a = ACCESS (clauses.antecedents, id);
       dbgs (l, "checking clause %d literals", id);
       dbgs (a, "checking clause %d antecedents", id);
       check_clause (id, l, a);
@@ -1414,37 +1784,23 @@ static struct file *write_file (struct file *file) {
   return file;
 }
 
-static void close_output_proof () {
-  assert (proof.output);
-  flush_buffer ();
-  if (output.close)
-    fclose (output.file);
-  *proof.output = output;
-  vrb ("wrote %zu lines with %zu bytes (%.0f MB)", output.lines,
-       output.bytes, output.bytes / (double)(1 << 20));
-  msg ("trimmed %zu bytes (%.0f MB) to %zu bytes (%.0f MB) %.0f%%",
-       proof.input->bytes, proof.input->bytes / (double)(1 << 20),
-       proof.output->bytes, proof.output->bytes / (double)(1 << 20),
-       percent (proof.output->bytes, proof.input->bytes));
-}
-
 static int map_id (int id) {
   assert (id != INT_MIN);
   int abs_id = abs (id);
   int res;
-  if (id < first_clause_added_in_proof)
+  if (abs_id < first_clause_added_in_proof)
     res = id;
-  else
+  else {
     res = ACCESS (clauses.map, abs_id);
-  if (id < 0)
-    res = -res;
+    if (id < 0)
+      res = -res;
+  }
   return res;
 }
 
 static void write_non_empty_proof () {
 
   assert (output.path);
-  assert (output.file);
 
   assert (empty_clause > 0);
   ADJUST (clauses.links, empty_clause);
@@ -1465,7 +1821,6 @@ static void write_non_empty_proof () {
       write_space ();
       write_int (id);
       statistics.trimmed.cnf.deleted++;
-      statistics.trimmed.cnf.added++;
     }
   }
 
@@ -1502,7 +1857,9 @@ static void write_non_empty_proof () {
         write_space ();
         int other = *p;
         assert (abs (other) < id);
-        write_int (map_id (other));
+        int mapped = map_id (other);
+        assert ((other < 0) == (mapped < 0));
+        write_int (mapped);
       }
       write_str (" 0\n");
       int head = ACCESS (clauses.heads, id);
@@ -1534,8 +1891,10 @@ static void write_empty_proof () {
 static void write_proof () {
   if (!proof.output)
     return;
+
   double start = process_time ();
   vrb ("starting writing proof after %.2f seconds", start);
+
   buffer.pos = 0;
   output = *write_file (proof.output);
   msg ("writing proof to '%s'", output.path);
@@ -1543,21 +1902,66 @@ static void write_proof () {
     write_non_empty_proof ();
   else
     write_empty_proof ();
-  close_output_proof ();
+
+  assert (proof.output);
+  flush_buffer ();
+  if (output.close)
+    fclose (output.file);
+  *proof.output = output;
+
+  msg ("trimmed %s to %s %.0f%%", pretty_bytes (proof.input->bytes),
+       pretty_bytes (proof.output->bytes),
+       percent (proof.output->bytes, proof.input->bytes));
+
   double end = process_time (), duration = end - start;
   vrb ("finished writing proof after %.2f seconds", end);
   msg ("writing proof took %.2f seconds", duration);
 }
 
+static void write_clause (int id) {
+  int *l = ACCESS (clauses.literals, id);
+  for (int *p = l, lit; (lit = *p); p++)
+    write_int (*p), write_space ();
+  write_str ("0\n");
+}
+
 static void write_cnf () {
   if (!cnf.output)
     return;
-  output = *cnf.output;
-  wrn ("writing the clausal core as CNF is not implemented yet");
-  wrn ("(only trimming and writing the input proof)");
+  double start = process_time ();
+  vrb ("starting writing CNF after %.2f seconds", start);
+  buffer.pos = 0;
+  output = *write_file (cnf.output);
+  msg ("writing CNF to '%s'", output.path);
+
+  write_str ("p cnf ");
+  write_int (variables.original);
+  write_space ();
+  assert (trimming);
+  size_t count = 0;
+  write_size_t (statistics.trimmed.cnf.added);
+  write_char ('\n');
+  int id = 0;
+  while (id++ != last_clause_added_in_cnf)
+    if (id <= empty_clause && ACCESS (clauses.used, id))
+      write_clause (id), count++;
+  assert (count == statistics.trimmed.cnf.added);
+  msg ("wrote %zu clauses to CNF", count);
+
+  flush_buffer ();
   if (output.close)
     fclose (output.file);
   *cnf.output = output;
+
+  vrb ("wrote %zu proof lines of %s", output.lines,
+       pretty_bytes (output.bytes));
+  msg ("trimmed %s to %s %.0f%%", pretty_bytes (cnf.input->bytes),
+       pretty_bytes (cnf.output->bytes),
+       percent (cnf.output->bytes, cnf.input->bytes));
+
+  double end = process_time (), duration = end - start;
+  vrb ("finished writing CNF after %.2f seconds", end);
+  msg ("writing to CNF took %.2f seconds", duration);
 }
 
 static void release () {
@@ -1578,8 +1982,10 @@ static const char *numeral (size_t i) {
     return "1st";
   if (i == 1)
     return "2nd";
-  assert (i == 2);
-  return "3rd";
+  if (i == 2)
+    return "3rd";
+  assert (i == 3);
+  return "4th";
 }
 
 static void options (int argc, char **argv) {
@@ -1589,7 +1995,10 @@ static void options (int argc, char **argv) {
       fputs (usage, stdout);
       exit (0);
     }
-    if (!strcmp (arg, "-f") || !strcmp (arg, "--force"))
+    if (!strcmp (arg, "-a") || !strcmp (arg, "--ascii") ||
+        !strcmp (arg, "--no-binary"))
+      ascii = arg;
+    else if (!strcmp (arg, "-f") || !strcmp (arg, "--force"))
       force = arg;
     else if (!strcmp (arg, "-S") || !strcmp (arg, "--forward"))
       forward = arg;
@@ -1610,6 +2019,8 @@ static void options (int argc, char **argv) {
       nocheck = arg;
     else if (!strcmp (arg, "--no-trim"))
       notrim = arg;
+    else if (!strcmp (arg, "--relax"))
+      relax = true;
     else if (!strcmp (arg, "-V") || !strcmp (arg, "--version"))
       fputs (version, stdout), fputc ('\n', stdout), exit (0);
     else if (arg[0] == '-' && arg[1])
@@ -1625,7 +2036,7 @@ static void options (int argc, char **argv) {
     die ("no input file given (try '-h')");
 
   if (size_files > 2 && notrim)
-    die ("can not write to '%s' with '%s", files[2].path, notrim);
+    die ("can not write to '%s' with '%s'", files[2].path, notrim);
 
   for (size_t i = 0; i + 1 != size_files; i++)
     if (strcmp (files[i].path, "-") && strcmp (files[i].path, "/dev/null"))
@@ -1669,15 +2080,18 @@ static bool looks_like_a_dimacs_file (const char *path) {
   assert (path);
   if (!strcmp (path, "-"))
     return false;
+  if (!strcmp (path, "/dev/null"))
+    return false;
   if (has_suffix (path, ".cnf"))
     return true;
+  if (has_suffix (path, ".dimacs"))
+    return true;
+#if 0
   if (has_suffix (path, ".cnf.gz"))
     return true;
   if (has_suffix (path, ".cnf.bz2"))
     return true;
   if (has_suffix (path, ".cnf.xz"))
-    return true;
-  if (has_suffix (path, ".dimacs"))
     return true;
   if (has_suffix (path, ".dimacs.gz"))
     return true;
@@ -1685,6 +2099,7 @@ static bool looks_like_a_dimacs_file (const char *path) {
     return true;
   if (has_suffix (path, ".dimacs.xz"))
     return true;
+#endif
   FILE *file = fopen (path, "r");
   if (!file)
     return false;
@@ -1701,7 +2116,7 @@ static void open_input_files () {
     struct file *file = &files[0];
     input = *read_file (file);
     int ch = getc (input.file);
-    count_read (ch);
+    count_ascii (ch);
     input.saved = ch;
     *file = input;
     if (ch == 'c' || ch == 'p') {
@@ -1724,14 +2139,12 @@ static void open_input_files () {
                "as it looks like a CNF in DIMACS format (use '--force' to "
                "overwrite nevertheless)",
                files[1].path);
-      } else
-        wrn ("using '%s' while second file '%s' does not look a CNF "
-             "does not make sense",
-             force, files[1].path);
+      }
       proof.output = &files[1];
     }
   } else {
-    assert (size_files < 4);
+    assert (2 < size_files);
+    assert (size_files < 5);
     cnf.input = read_file (&files[0]);
     proof.input = read_file (&files[1]);
     proof.output = &files[2];
@@ -1744,9 +2157,38 @@ static void open_input_files () {
     wrn ("using '%s' without CNF does not make sense", nocheck);
   if (!cnf.input && forward)
     wrn ("using '%s' without CNF does not make sense", forward);
+  if (proof.output && forward)
+    die ("can not write proof to '%s' with '%s'", proof.output->path,
+         forward);
+  if (!proof.output && ascii)
+    wrn ("'%s' without output-proof does not make sense", ascii);
+  if (proof.output && looks_like_a_dimacs_file (proof.output->path)) {
+    if (force)
+      wrn ("forced to write third file '%s' with trimmed proof "
+           "even though it looks like a CNF in DIMACS format",
+           files[2].path);
+    else
+      die ("will not write third file '%s' with trimmed proof "
+           "as it looks like a CNF in DIMACS format (use '--force' to "
+           "overwrite nevertheless)",
+           files[2].path);
+  }
 
-  checking = !nocheck && cnf.input;
-  trimming = !notrim && (!forward || proof.output || cnf.output);
+  // No CNF output without proof output: this is a restriction due to the
+  // way we specify files but would also make the internal logic of
+  // running the various functions in different mode pretty complex.
+  //
+  assert (!cnf.output || proof.output);
+
+  // Then we also enforce (above) that you can not do forward checking and
+  // at the same time produce a proof.  With forward checking we want to
+  // check on-the-fly and also at the same delete antecedent lists and
+  // clauses on the fly too. This restriction (*) simplifies the logic.
+  //
+  assert (!proof.output || !forward);
+
+  checking = !nocheck && cnf.input; // No checking without CNF for sure.
+  trimming = !notrim && !forward;   // With the above restriction (*).
 }
 
 static void print_banner () {
@@ -1769,10 +2211,10 @@ static void print_mode () {
         mode = "reading CNF and LRAT files and writing them too";
       else
         mode = "reading CNF and LRAT files and writing LRAT file";
-    } else if (cnf.output)
-      mode = "reading CNF and LRAT files and writing CNF file";
-    else
+    } else {
+      assert (!cnf.output);
       mode = "reading CNF and LRAT files";
+    }
   } else {
     if (proof.output)
       mode = "reading and writing LRAT files";
@@ -1783,16 +2225,12 @@ static void print_mode () {
 
   if (checking) {
     if (forward) {
-      if (trimming)
-        mode = "forward checking all clauses followed by trimming proof";
-      else
-        mode = "forward checking all clauses without trimming proof";
-    } else {
-      if (trimming)
-        mode = "backward checking trimmed clauses after trimming proof";
-      else
-        mode = "backward checking all clauses without trimming proof";
-    }
+      assert (!trimming);
+      mode = "forward checking all clauses without trimming proof";
+    } else if (trimming)
+      mode = "backward checking trimmed clauses after trimming proof";
+    else
+      mode = "backward checking all clauses without trimming proof";
   } else {
     if (trimming)
       mode = "trimming proof without checking clauses";
@@ -1823,11 +2261,19 @@ static void print_statistics () {
   msg ("total time of %.2f seconds", t);
 }
 
+static void close_coverage () {
+#ifdef COVERAGE
+  printf ("c COVERED pretty_bytes (1<<30) = \"%s\"\n",
+          pretty_bytes (1 << 30));
+#endif
+}
+
 int main (int argc, char **argv) {
   options (argc, argv);
   open_input_files ();
   print_banner ();
   print_mode ();
+  close_coverage ();
   parse_cnf ();
   parse_proof ();
   trim_proof ();
@@ -1835,12 +2281,14 @@ int main (int argc, char **argv) {
   write_proof ();
   write_cnf ();
   int res = 0;
-  if (statistics.clauses.checked.empty) {
-    printf ("s VERIFIED\n");
-    fflush (stdout);
-    res = 20;
-  } else
-    msg ("no empty clause found and checked");
+  if (checking) {
+    if (statistics.clauses.checked.empty) {
+      printf ("s VERIFIED\n");
+      fflush (stdout);
+      res = 20;
+    } else
+      msg ("no empty clause found and checked");
+  }
   release ();
   print_statistics ();
   return res;
