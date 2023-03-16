@@ -36,7 +36,7 @@ runascii () {
   log1=${log}1
   err1=${err}1
 
-  $lrattrim $lrat $lrat1 1>$log1 2>$err1
+  $lrattrim -a $lrat $lrat1 1>$log1 2>$err1
   status=$?
   if [ $status = 0 ]
   then
@@ -50,7 +50,7 @@ runascii () {
   log2=${log}2
   err2=${err}2
 
-  $lrattrim $lrat1 $lrat2 1>$log2 2>$err2
+  $lrattrim -a $lrat1 $lrat2 1>$log2 2>$err2
   status=$?
   if [ $status = 0 ]
   then
