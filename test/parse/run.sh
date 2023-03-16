@@ -202,6 +202,7 @@ runlrit delzero
 runlrit addeof
 runlrit addexessiveante
 runlrit addzeroante
+runlrit addeofante
 
 lritruns=`grep '^runlrit [a-z]' run.sh|wc -l`
 lratruns=`grep '^runlrat [a-z]' run.sh|wc -l`
