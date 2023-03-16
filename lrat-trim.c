@@ -8,7 +8,7 @@ static const char * usage =
 "\n"
 "where '<option> ...' is a potentially empty list of the following options\n"
 "\n"
-"  -a | --ascii    write output-proof in binary LRAT format\n"
+"  -a | --ascii    output proof in ASCII LRAT format (default is binary)\n"
 "  -f | --force    overwrite CNF alike second file with proof\n"
 "  -S | --forward  forward check all added clauses eagerly\n"
 "  -h | --help     print this command line option summary\n"
@@ -513,8 +513,7 @@ struct buffer {
 } buffer;
 
 static size_t fill_buffer () {
-  if (!input.file)
-    return buffer.pos = buffer.end = 0;
+  assert (input.file);
   buffer.pos = 0;
   buffer.end = fread (buffer.chars, 1, size_buffer, input.file);
   return buffer.end;
@@ -1195,7 +1194,7 @@ static void parse_proof () {
     if (isprint (ch))
       prr ("unexpected first character '%c'", ch);
     else
-      prr ("unexpected first byte '0x02%x'", (unsigned)ch);
+      prr ("unexpected first byte '0x%02x'", (unsigned)ch);
   }
 
   // To track in the binary proof format we use byte offsets instead of line
@@ -1213,7 +1212,6 @@ static void parse_proof () {
     int id, type = 0;
 
     if (binary) {
-      assert (ch == 'a' || ch == 'd');
       if (ch != 'a' && ch != 'd')
         prr ("expected either 'a' or 'd'");
       type = ch;
@@ -1221,27 +1219,26 @@ static void parse_proof () {
         ch = read_binary ();
         if (ch == EOF)
           prr ("end-of-file after '%c'", type);
-        if (ch) {
-          unsigned uid = 0, shift = 0;
-          for (;;) {
-            unsigned uch = ch;
-            if (shift == 28 && (uch & ~15u))
-              prr ("excessive clause identifier");
-            uid |= (uch & 127) << shift;
-            if (!(uch & 128))
-              break;
-            shift += 7;
-            ch = read_binary ();
-            if (!ch)
-              prr ("invalid trailing zero byte in clause identifier");
-            if (ch == EOF)
-              prr ("end-of-file parsing clause identifier");
-          }
-	  if (uid > (unsigned) INT_MAX)
-	    prr ("clause identifier %u too large", uid);
-          id = uid;
-        } else
-          id = 0;
+	if (!ch)
+	  prr ("invalid zero clause identifier '0' in addition");
+	unsigned uid = 0, shift = 0;
+	for (;;) {
+	  unsigned uch = ch;
+	  if (shift == 28 && (uch & ~15u))
+	    prr ("excessive clause identifier");
+	  uid |= (uch & 127) << shift;
+	  if (!(uch & 128))
+	    break;
+	  shift += 7;
+	  ch = read_binary ();
+	  if (!ch)
+	    prr ("invalid zero byte in clause identifier");
+	  if (ch == EOF)
+	    prr ("end-of-file parsing clause identifier");
+	}
+	if (uid > (unsigned) INT_MAX)
+	  prr ("clause identifier %u too large", uid);
+	id = uid;
         dbg ("parsed clause identifier %d at byte %zu", id, info);
       } else
         id = last_id;
@@ -1302,7 +1299,7 @@ static void parse_proof () {
               shift += 7;
               ch = read_binary ();
               if (!ch)
-                prr ("invalid trailing zero byte in antecedent deletion");
+                prr ("invalid zero byte in antecedent deletion");
               if (ch == EOF)
                 prr ("end-of-file parsing antecedent in deletion");
             }
@@ -1413,7 +1410,7 @@ static void parse_proof () {
             shift += 7;
             ch = read_binary ();
             if (!ch)
-              prr ("invalid trailing zero byte in literal of clause %d",
+              prr ("invalid zero byte in literal of clause %d",
                    id);
             if (ch == EOF)
               prr ("end-of-file parsing literal in clause %d", id);
@@ -1523,7 +1520,7 @@ static void parse_proof () {
             shift += 7;
             ch = read_binary ();
             if (!ch)
-              prr ("invalid trailing zero byte in clause %d", id);
+              prr ("invalid zero byte in clause %d", id);
             if (ch == EOF)
               prr ("end-of-file parsing antecedent in clause %d", id);
           }
@@ -2115,9 +2112,14 @@ static void open_input_files () {
   else if (size_files == 2) {
     struct file *file = &files[0];
     input = *read_file (file);
-    int ch = getc (input.file);
-    count_ascii (ch);
-    input.saved = ch;
+    int ch;
+    if (input.file) {
+      ch = getc (input.file);
+      input.saved = ch;
+    } else {
+      assert (input.saved == EOF);
+      ch = EOF;
+    }
     *file = input;
     if (ch == 'c' || ch == 'p') {
       cnf.input = file;
