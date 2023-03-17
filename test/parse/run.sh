@@ -177,6 +177,7 @@ runlrat zeroneid
 runlrat antenonexist
 runlrat antedel
 runlrat antenonl
+runlrat nondigitatlinestart
 
 runlrit eofid1
 runlrit eofid2
@@ -191,6 +192,16 @@ runlrit eoflit1
 runlrit eoflit2
 runlrit eofexcessivelit
 runlrit invalidzeroinlit
+runlrit invalidfirstbyte
+runlrit expectedaord
+runlrit eofaftera
+runlrit eofafterd
+runlrit bincidtoolarge
+runlrit binzeroclauseid
+runlrit delzero
+runlrit addeof
+runlrit addexessiveante
+runlrit addzeroante
 
 lritruns=`grep '^runlrit [a-z]' run.sh|wc -l`
 lratruns=`grep '^runlrat [a-z]' run.sh|wc -l`
