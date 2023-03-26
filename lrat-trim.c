@@ -169,6 +169,7 @@ static const char *force;
 static const char *forward;
 static const char *nocheck;
 static const char *notrim;
+static const char *strict;
 static const char *track;
 static int verbosity;
 
@@ -2090,6 +2091,8 @@ static void options (int argc, char **argv) {
 #endif
     else if (!strcmp (arg, "-q") || !strcmp (arg, "--quiet"))
       verbosity = -1;
+    else if (!strcmp (arg, "-s") || !strcmp (arg, "--strict"))
+      strict = arg;
     else if (!strcmp (arg, "-t") || !strcmp (arg, "--track"))
       track = arg;
     else if (!strcmp (arg, "-v") || !strcmp (arg, "--verbose")) {
@@ -2242,6 +2245,10 @@ static void open_input_files () {
     wrn ("using '%s' without CNF does not make sense", nocheck);
   if (!cnf.input && forward)
     wrn ("using '%s' without CNF does not make sense", forward);
+  if (strict && nocheck)
+    wrn ("using '%s' and '%s' does not make sense", strict, nocheck);
+  if (strict && !cnf.input)
+    wrn ("using '%s' without CNF does not make sense", strict);
   if (proof.output && forward)
     die ("can not write proof to '%s' with '%s'", proof.output->path,
          forward);
