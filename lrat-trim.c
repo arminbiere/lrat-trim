@@ -8,7 +8,7 @@ static const char * usage =
 "\n"
 "where '<option> ...' is a potentially empty list of the following options\n"
 "\n"
-"  -a | --ascii    output proof in ASCII LRAT format (default is binary)\n"
+"  -a | --ascii    output proof in ASCII format (default is binary)\n"
 "  -f | --force    overwrite CNF alike second file with proof\n"
 "  -S | --forward  forward check all added clauses eagerly\n"
 "  -h | --help     print this command line option summary\n"
@@ -16,7 +16,7 @@ static const char * usage =
 "  -l | --log      print all messages including logging messages\n"
 #endif
 "  -q | --quiet    be quiet and do not print any messages\n" 
-"  -t | --track    track more detailed addition and deletion information\n"
+"  -t | --track    track addition and deletion information\n"
 "  -v | --verbose  enable verbose messages\n"
 "  -V | --version  print version only\n"
 "\n"
