@@ -1,4 +1,4 @@
-static const char *version = "0.2.0-rc.3";
+static const char *version = "0.2.0-rc.4";
 
 // clang-format off
 
@@ -16,6 +16,7 @@ static const char * usage =
 "  -l | --log      print all messages including logging messages\n"
 #endif
 "  -q | --quiet    be quiet and do not print any messages\n" 
+"  -s | --strict   expect strict resolution chain format\n"
 "  -t | --track    track more detailed addition and deletion information\n"
 "  -v | --verbose  enable verbose messages\n"
 "  -V | --version  print version only\n"
@@ -170,6 +171,7 @@ static const char *force;
 static const char *forward;
 static const char *nocheck;
 static const char *notrim;
+static const char *strict;
 static const char *track;
 static int verbosity;
 
@@ -523,7 +525,9 @@ static size_t fill_buffer () {
 }
 
 // These three functions were not inlined with gcc-11 but should be despite
-// having declared them as 'inline'.
+// having declared them as 'inline' and thus we use this 'always_inline'
+// attribute which seems to succeed to force inlining.  Havin them inlined
+// really gives a performance boost.
 
 static inline int read_buffer (void) __attribute__ ((always_inline));
 
@@ -951,6 +955,9 @@ static inline bool is_original_clause (int id) {
 
 #define ISDIGIT faster_than_default_isdigit
 
+static inline bool faster_than_default_isdigit (int)
+    __attribute__ ((always_inline));
+
 static inline bool faster_than_default_isdigit (int ch) {
   return '0' <= ch && ch <= '9';
 }
@@ -1282,7 +1289,7 @@ static void parse_proof () {
   if (ch == 'a' || ch == 'd') {
     vrb ("first character '%c' indicates binary proof format", ch);
     input.binary = true;
-  } else if (isdigit (ch)) {
+  } else if (ISDIGIT (ch)) {
     vrb ("first character '%c' indicates ASCII proof format", ch);
     assert (!input.binary);
   } else if (ch == 'c' || ch == 'p')
@@ -1342,7 +1349,7 @@ static void parse_proof () {
       } else
         id = last_id;
     } else { // !binary
-      if (!isdigit (ch))
+      if (!ISDIGIT (ch))
         prr ("expected digit as first character of line");
       id = ch - '0';
       while (ISDIGIT (ch = read_ascii ())) {
@@ -2155,6 +2162,8 @@ static void options (int argc, char **argv) {
 #endif
     else if (!strcmp (arg, "-q") || !strcmp (arg, "--quiet"))
       verbosity = -1;
+    else if (!strcmp (arg, "-s") || !strcmp (arg, "--strict"))
+      strict = arg;
     else if (!strcmp (arg, "-t") || !strcmp (arg, "--track"))
       track = arg;
     else if (!strcmp (arg, "-v") || !strcmp (arg, "--verbose")) {
@@ -2307,6 +2316,10 @@ static void open_input_files () {
     wrn ("using '%s' without CNF does not make sense", nocheck);
   if (!cnf.input && forward)
     wrn ("using '%s' without CNF does not make sense", forward);
+  if (strict && nocheck)
+    wrn ("using '%s' and '%s' does not make sense", strict, nocheck);
+  if (strict && !cnf.input)
+    wrn ("using '%s' without CNF does not make sense", strict);
   if (proof.output && forward)
     die ("can not write proof to '%s' with '%s'", proof.output->path,
          forward);
