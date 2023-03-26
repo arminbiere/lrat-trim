@@ -1,4 +1,4 @@
-static const char *version = "0.2.0-rc.3";
+static const char *version = "0.2.0-rc.4";
 
 // clang-format off
 
@@ -16,6 +16,7 @@ static const char * usage =
 "  -l | --log      print all messages including logging messages\n"
 #endif
 "  -q | --quiet    be quiet and do not print any messages\n" 
+"  -s | --strict   expect strict resolution chain format\n"
 "  -t | --track    track more detailed addition and deletion information\n"
 "  -v | --verbose  enable verbose messages\n"
 "  -V | --version  print version only\n"
@@ -885,6 +886,9 @@ static inline bool is_original_clause (int id) {
 // We use 'ISDIGIT' instead of 'isdigit' as the later can itself be a macro.
 
 #define ISDIGIT faster_than_default_isdigit
+
+static inline bool faster_than_default_isdigit (int)
+    __attribute__ ((always_inline));
 
 static inline bool faster_than_default_isdigit (int ch) {
   return '0' <= ch && ch <= '9';
