@@ -40,7 +40,8 @@ msg "saving CNF as '$cnf'"
 cat $* > $cnf
 
 msg "calling 'radical'"
-$radical --lrat --no-binary $cnf $lrat > $log1
+#$radical --lrat --no-binary $cnf $lrat > $log1
+$radical --lrat $cnf $lrat > $log1
 radicalstatus=$?
 
 cat $log1
@@ -54,13 +55,13 @@ if false
 then
 
   msg "backward checking with 'lrat-trim'"
-  $lrattrim $cnf $lrat -S > $log2
+  $lrattrim $cnf $lrat > $log2
   lrattrimstatus=$?
 
 else
 
   msg "forward checking with 'lrat-trim'"
-  $lrattrim $cnf $lrat > $log2
+  $lrattrim $cnf $lrat -S --strict > $log2
   lrattrimstatus=$?
 
 fi

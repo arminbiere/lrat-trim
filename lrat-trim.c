@@ -141,7 +141,6 @@ struct statistics {
   struct {
     size_t assigned;
     size_t marked;
-    size_t resolved;
   } literals;
 } statistics;
 
@@ -825,6 +824,7 @@ static void check_clause_non_strictly_by_propagation (int id, int *literals,
                                                       int *antecedents) {
   assert (!strict);
   assert (EMPTY (trail));
+
   statistics.clauses.resolved++;
   for (int *l = literals, lit; (lit = *l); l++) {
     signed char value = assigned_literal (lit);
@@ -895,17 +895,18 @@ static void check_clause_strictly_by_resolution (int id, int *literals,
       assert (lit != INT_MIN);
       int idx = abs (lit);
       signed char *m = &ACCESS (variables.marks, idx);
-      signed char expected = lit < 0 ? -1 : 1;
-      signed char actual = *m;
-      if (!actual) {
+      signed char mark = *m;
+      if (!mark) {
         dbg ("marking antecedent literal '%d'", lit);
-        *m = expected;
+        *m = lit < 0 ? -1 : 1;
         resolvent_size++;
         continue;
       }
-      if (expected == actual)
+      if (lit < 0)
+	mark = -mark;
+      if (mark > 0)
         continue;
-      assert (expected == -actual);
+      assert (mark < 0);
       if (unit)
         crr (id, "multiple pivots '%d' and '%d' in antecedent '%d'", unit,
              lit, aid);
@@ -919,8 +920,36 @@ static void check_clause_strictly_by_resolution (int id, int *literals,
     } else if (!unit)
       crr (id, "no pivot in antecedent '%d'", aid);
     else {
+      dbg ("resolving over pivot literal %d", unit);
+      assert (resolvent_size > 0);
+      resolvent_size--;
+      assert (unit != INT_MIN);
+      int idx = abs (unit);
+      signed char *m = &ACCESS (variables.marks, idx);
+      *m = 0;
     }
   }
+
+  for (int *l = literals, lit; (lit = *l); l++) {
+    assert (lit != INT_MIN);
+    int idx = abs (lit);
+    signed char * m = &ACCESS (variables.marks, idx);
+    signed char mark = *m;
+    if (!mark)
+      crr (id, "literal '%d' not in resolvent", lit);
+    if (lit < 0)
+      mark = -mark;
+    if (mark < 0)
+      crr (id, "literal '%d' negated in resolvent", lit);
+    *m = 0;
+    assert (resolvent_size);
+    resolvent_size--;
+  }
+
+  if (resolvent_size == 1)
+    crr (id, "final resolvent has one additional literal");
+  else if (resolvent_size)
+    crr (id, "final resolvent has %zu additional literals", resolvent_size);
 }
 
 static void check_clause (int id, int *literals, int *antecedents) {
@@ -2416,7 +2445,7 @@ static void print_statistics () {
          average (statistics.clauses.resolved,
                   statistics.clauses.checked.total));
     if (strict)
-      msg ("assigned %zu literals %.2f per checked clause",
+      msg ("marked %zu literals %.2f per checked clause",
            statistics.literals.assigned,
            average (statistics.literals.assigned,
                     statistics.clauses.checked.total));
