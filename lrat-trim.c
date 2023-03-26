@@ -521,7 +521,9 @@ static size_t fill_buffer () {
 }
 
 // These three functions were not inlined with gcc-11 but should be despite
-// having declared them as 'inline'.
+// having declared them as 'inline' and thus we use this 'always_inline'
+// attribute which seems to succeed to force inlining.  Havin them inlined
+// really gives a performance boost.
 
 static inline int read_buffer (void) __attribute__ ((always_inline));
 
@@ -1218,7 +1220,7 @@ static void parse_proof () {
   if (ch == 'a' || ch == 'd') {
     vrb ("first character '%c' indicates binary proof format", ch);
     input.binary = true;
-  } else if (isdigit (ch)) {
+  } else if (ISDIGIT (ch)) {
     vrb ("first character '%c' indicates ASCII proof format", ch);
     assert (!input.binary);
   } else if (ch == 'c' || ch == 'p')
@@ -1278,7 +1280,7 @@ static void parse_proof () {
       } else
         id = last_id;
     } else { // !binary
-      if (!isdigit (ch))
+      if (!ISDIGIT (ch))
         prr ("expected digit as first character of line");
       id = ch - '0';
       while (ISDIGIT (ch = read_ascii ())) {
