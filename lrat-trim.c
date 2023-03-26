@@ -2446,8 +2446,8 @@ static void print_statistics () {
                   statistics.clauses.checked.total));
     if (strict)
       msg ("marked %zu literals %.2f per checked clause",
-           statistics.literals.assigned,
-           average (statistics.literals.assigned,
+           statistics.literals.marked,
+           average (statistics.literals.marked,
                     statistics.clauses.checked.total));
     else
       msg ("assigned %zu literals %.2f per checked clause",
