@@ -584,7 +584,7 @@ static inline int read_binary (void) {
 // will give back this saved character as first read character.
 
 // Note that statistics of the file are adjusted during reading the
-// saved character the firs time do not need to be updated here again.
+// saved character the first time do not need to be updated here again.
 
 // Originally we simply only had one 'read_char' function, but factoring out
 // this rare situation and restricting it to the beginning of parsing helped
