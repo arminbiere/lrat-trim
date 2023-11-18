@@ -1,4 +1,4 @@
-static const char *version = "0.2.0";
+static const char *version = "0.2.1-dev";
 
 // clang-format off
 
@@ -95,7 +95,8 @@ struct file {
   size_t bytes;
   size_t lines;
   bool binary;
-  char close;
+  bool fclose;
+  bool pclose;
   bool eof;
   int last;
   int saved;
@@ -1216,8 +1217,10 @@ static void parse_cnf () {
   assert (EMPTY (parsed_literals));
   RELEASE (parsed_literals);
 
-  if (input.close)
+  if (input.fclose)
     fclose (input.file);
+  if (input.pclose)
+    pclose (input.file);
   *cnf.input = input;
 
   vrb ("read %zu CNF lines with %s", input.lines,
@@ -1834,8 +1837,10 @@ static void parse_proof () {
   }
   RELEASE (parsed_antecedents);
   RELEASE (parsed_literals);
-  if (input.close)
+  if (input.fclose)
     fclose (input.file);
+  if (input.pclose)
+    pclose (input.file);
   *proof.input = input;
 
   RELEASE (clauses.deleted);
@@ -1967,15 +1972,20 @@ static struct file *write_file (struct file *file) {
   assert (file->path);
   if (!strcmp (file->path, "/dev/null")) {
     assert (!file->file);
-    assert (!file->close);
+    assert (!file->fclose);
+    assert (!file->pclose);
   } else if (!strcmp (file->path, "-")) {
     file->file = stdout;
     file->path = "<stdout>";
-    assert (!file->close);
-  } else if (!(file->file = fopen (file->path, "w")))
-    die ("can not write '%s'", file->path);
-  else
-    file->close = 1;
+    assert (!file->fclose);
+    assert (!file->pclose);
+  } else {
+    file->file = fopen (file->path, "w");
+    if (!file->file)
+      die ("can not write '%s'", file->path);
+    file->fclose = 1;
+    assert (!file->pclose);
+  }
   return file;
 }
 
@@ -2146,8 +2156,10 @@ static void write_proof () {
 
   assert (proof.output);
   flush_buffer ();
-  if (output.close)
+  if (output.fclose)
     fclose (output.file);
+  if (output.pclose)
+    pclose (output.file);
   *proof.output = output;
 
   msg ("trimmed %s to %s %.0f%%", pretty_bytes (proof.input->bytes),
@@ -2190,8 +2202,10 @@ static void write_cnf () {
   msg ("wrote %zu clauses to CNF", count);
 
   flush_buffer ();
-  if (output.close)
+  if (output.fclose)
     fclose (output.file);
+  if (output.pclose)
+    pclose (output.file);
   *cnf.output = output;
 
   vrb ("wrote %zu proof lines of %s", output.lines,
@@ -2300,19 +2314,41 @@ static void options (int argc, char **argv) {
     die ("can not use '<stdout>' for both last two output files");
 }
 
+static bool matches (const char *str, const char *suffix) {
+  size_t k = strlen (str), l = strlen (suffix);
+  return l <= k && !strcmp (str + k - l, suffix);
+}
+
+static FILE *read_pipe (const char *fmt, const char *path) {
+  char *cmd = malloc (strlen (fmt) + strlen (path));
+  sprintf (cmd, fmt, path);
+  FILE *res = popen (cmd, "r");
+  free (cmd);
+  return res;
+}
+
 static struct file *read_file (struct file *file) {
-  assert (file->path);
-  if (!strcmp (file->path, "/dev/null")) {
+  const char *path = file->path;
+  assert (path);
+  if (!strcmp (path, "/dev/null")) {
     assert (!file->file);
-    assert (!file->close);
-  } else if (!strcmp (file->path, "-")) {
+    assert (!file->fclose);
+    assert (!file->pclose);
+  } else if (!strcmp (path, "-")) {
     file->file = stdin;
-    file->path = "<stdin>";
-    assert (!file->close);
-  } else if (!(file->file = fopen (file->path, "r")))
-    die ("can not read '%s'", file->path);
-  else
-    file->close = 1;
+    path = "<stdin>";
+    assert (!file->fclose);
+    assert (!file->pclose);
+  } else {
+    assert (!file->fclose);
+    assert (!file->pclose);
+    if (matches (path, ".xz"))
+      file->file = read_pipe ("xz -d -c %s", path), file->pclose = true;
+    else
+      file->file = fopen (path, "r"), file->fclose = true;
+    if (!file->file)
+      die ("can not read '%s'", path);
+  }
   file->saved = EOF;
   return file;
 }
