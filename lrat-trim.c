@@ -16,7 +16,8 @@ static const char * usage =
 "  -l | --log      print all messages including logging messages\n"
 #endif
 "  -q | --quiet    be quiet and do not print any messages\n" 
-"  -t | --track    track addition and deletion information\n"
+"  -s | --strict   expect strict resolution chain format\n"
+"  -t | --track    track more detailed addition and deletion information\n"
 "  -v | --verbose  enable verbose messages\n"
 "  -V | --version  print version only\n"
 "\n"
@@ -139,6 +140,7 @@ struct statistics {
   } clauses;
   struct {
     size_t assigned;
+    size_t marked;
   } literals;
 } statistics;
 
@@ -168,6 +170,7 @@ static const char *force;
 static const char *forward;
 static const char *nocheck;
 static const char *notrim;
+static const char *strict;
 static const char *track;
 static int verbosity;
 
@@ -180,6 +183,7 @@ static int last_clause_added_in_cnf;
 static int first_clause_added_in_proof;
 
 static struct {
+  struct char_map marks;
   struct char_map values;
   int original;
 } variables;
@@ -520,7 +524,9 @@ static size_t fill_buffer () {
 }
 
 // These three functions were not inlined with gcc-11 but should be despite
-// having declared them as 'inline'.
+// having declared them as 'inline' and thus we use this 'always_inline'
+// attribute which seems to succeed to force inlining.  Havin them inlined
+// really gives a performance boost.
 
 static inline int read_buffer (void) __attribute__ ((always_inline));
 
@@ -773,7 +779,7 @@ static inline signed char assigned_literal (int lit) {
   assert (lit);
   assert (lit != INT_MIN);
   int idx = abs (lit);
-  int res = ACCESS (variables.values, idx);
+  signed char res = ACCESS (variables.values, idx);
   if (lit < 0)
     res = -res;
   return res;
@@ -814,12 +820,12 @@ static void crr (int id, const char *fmt, ...) {
   exit (1);
 }
 
-static void check_clause (int id, int *literals, int *antecedents) {
+static void check_clause_non_strictly_by_propagation (int id, int *literals,
+                                                      int *antecedents) {
+  assert (!strict);
   assert (EMPTY (trail));
+
   statistics.clauses.resolved++;
-  statistics.clauses.checked.total++;
-  if (!*literals)
-    statistics.clauses.checked.empty++;
   for (int *l = literals, lit; (lit = *l); l++) {
     signed char value = assigned_literal (lit);
     if (value < 0) {
@@ -836,6 +842,7 @@ static void check_clause (int id, int *literals, int *antecedents) {
     }
     assign_literal (-lit);
   }
+
   for (int *a = antecedents, aid; (aid = *a); a++) {
     if (aid < 0)
       crr (id, "checking negative RAT antecedent '%d' not supported", aid);
@@ -864,6 +871,97 @@ static void check_clause (int id, int *literals, int *antecedents) {
   crr (id, "propagating antecedents does not yield conflict");
 }
 
+static void check_clause_strictly_by_resolution (int id, int *literals,
+                                                 int *antecedents) {
+  assert (strict);
+  assert (EMPTY (trail));
+
+  int *a = antecedents, aid;
+  while ((aid = *a))
+    if (aid < 0)
+      crr (id, "checking negative RAT antecedent '%d' not supported", aid);
+    else
+      a++;
+
+  size_t resolvent_size = 0;
+  bool first = true;
+  while (a != antecedents) {
+    aid = *--a;
+    int *als = ACCESS (clauses.literals, aid);
+    dbgs (als, "resolving antecedent %d clause", aid);
+    statistics.clauses.resolved++;
+    int unit = 0;
+    for (int *l = als, lit; (lit = *l); l++) {
+      assert (lit != INT_MIN);
+      int idx = abs (lit);
+      signed char *m = &ACCESS (variables.marks, idx);
+      signed char mark = *m;
+      if (!mark) {
+        dbg ("marking antecedent literal '%d'", lit);
+        *m = lit < 0 ? -1 : 1;
+        resolvent_size++;
+        continue;
+      }
+      if (lit < 0)
+	mark = -mark;
+      if (mark > 0)
+        continue;
+      assert (mark < 0);
+      if (unit)
+        crr (id, "multiple pivots '%d' and '%d' in antecedent '%d'", unit,
+             lit, aid);
+      unit = lit;
+    }
+    if (first) {
+      if (unit)
+        crr (id, "multiple pivots '%d' and '%d' in antecedent '%d'", -unit,
+             unit, aid);
+      first = false;
+    } else if (!unit)
+      crr (id, "no pivot in antecedent '%d'", aid);
+    else {
+      dbg ("resolving over pivot literal %d", unit);
+      assert (resolvent_size > 0);
+      resolvent_size--;
+      assert (unit != INT_MIN);
+      int idx = abs (unit);
+      signed char *m = &ACCESS (variables.marks, idx);
+      *m = 0;
+    }
+  }
+
+  for (int *l = literals, lit; (lit = *l); l++) {
+    assert (lit != INT_MIN);
+    int idx = abs (lit);
+    signed char * m = &ACCESS (variables.marks, idx);
+    signed char mark = *m;
+    if (!mark)
+      crr (id, "literal '%d' not in resolvent", lit);
+    if (lit < 0)
+      mark = -mark;
+    if (mark < 0)
+      crr (id, "literal '%d' negated in resolvent", lit);
+    *m = 0;
+    assert (resolvent_size);
+    resolvent_size--;
+  }
+
+  if (resolvent_size == 1)
+    crr (id, "final resolvent has one additional literal");
+  else if (resolvent_size)
+    crr (id, "final resolvent has %zu additional literals", resolvent_size);
+}
+
+static void check_clause (int id, int *literals, int *antecedents) {
+  statistics.clauses.checked.total++;
+  if (!*literals)
+    statistics.clauses.checked.empty++;
+  if (strict)
+    check_clause_strictly_by_resolution (id, literals, antecedents);
+  else
+    check_clause_non_strictly_by_propagation (id, literals, antecedents);
+}
+
 static inline bool is_original_clause (int id) {
   int abs_id = abs (id);
   return !abs_id || !first_clause_added_in_proof ||
@@ -885,6 +983,9 @@ static inline bool is_original_clause (int id) {
 // We use 'ISDIGIT' instead of 'isdigit' as the later can itself be a macro.
 
 #define ISDIGIT faster_than_default_isdigit
+
+static inline bool faster_than_default_isdigit (int)
+    __attribute__ ((always_inline));
 
 static inline bool faster_than_default_isdigit (int ch) {
   return '0' <= ch && ch <= '9';
@@ -985,7 +1086,10 @@ static void parse_cnf () {
     prr ("expected new-line after 'p cnf %d %d'", header_variables,
          header_clauses);
   msg ("found 'p cnf %d %d' header", header_variables, header_clauses);
-  ADJUST (variables.values, header_variables);
+  if (strict)
+    ADJUST (variables.marks, header_variables);
+  else
+    ADJUST (variables.values, header_variables);
   ADJUST (clauses.literals, header_clauses);
   ADJUST (clauses.status, header_clauses);
   int lit = 0, parsed_clauses = 0;
@@ -1214,7 +1318,7 @@ static void parse_proof () {
   if (ch == 'a' || ch == 'd') {
     vrb ("first character '%c' indicates binary proof format", ch);
     input.binary = true;
-  } else if (isdigit (ch)) {
+  } else if (ISDIGIT (ch)) {
     vrb ("first character '%c' indicates ASCII proof format", ch);
     assert (!input.binary);
   } else if (ch == 'c' || ch == 'p')
@@ -1277,7 +1381,7 @@ static void parse_proof () {
       } else
         id = last_id;
     } else { // !binary
-      if (!isdigit (ch))
+      if (!ISDIGIT (ch))
         prr ("expected digit as first character of line");
       id = ch - '0';
       while (ISDIGIT (ch = read_ascii ())) {
@@ -1911,7 +2015,7 @@ static void write_non_empty_proof () {
         write_int (mapped);
       else {
         write_binary ('a');
-        write_unsigned (mapped);
+        write_signed (mapped);
       }
       int *l = ACCESS (clauses.literals, id);
       assert (l);
@@ -2067,7 +2171,10 @@ static void release () {
   RELEASE (clauses.links);
   RELEASE (clauses.map);
   RELEASE (clauses.used);
-  RELEASE (variables.values);
+  if (strict)
+    RELEASE (variables.marks);
+  else
+    RELEASE (variables.values);
   RELEASE (trail);
   release_ints_map (&clauses.literals);
   release_ints_map (&clauses.antecedents);
@@ -2107,6 +2214,8 @@ static void options (int argc, char **argv) {
 #endif
     else if (!strcmp (arg, "-q") || !strcmp (arg, "--quiet"))
       verbosity = -1;
+    else if (!strcmp (arg, "-s") || !strcmp (arg, "--strict"))
+      strict = arg;
     else if (!strcmp (arg, "-t") || !strcmp (arg, "--track"))
       track = arg;
     else if (!strcmp (arg, "-v") || !strcmp (arg, "--verbose")) {
@@ -2259,6 +2368,10 @@ static void open_input_files () {
     wrn ("using '%s' without CNF does not make sense", nocheck);
   if (!cnf.input && forward)
     wrn ("using '%s' without CNF does not make sense", forward);
+  if (strict && nocheck)
+    wrn ("using '%s' and '%s' does not make sense", strict, nocheck);
+  if (strict && !cnf.input)
+    wrn ("using '%s' without CNF does not make sense", strict);
   if (proof.output && forward)
     die ("can not write proof to '%s' with '%s'", proof.output->path,
          forward);
@@ -2354,10 +2467,16 @@ static void print_statistics () {
          statistics.clauses.resolved,
          average (statistics.clauses.resolved,
                   statistics.clauses.checked.total));
-    msg ("assigned %zu literals %.2f per checked clause",
-         statistics.literals.assigned,
-         average (statistics.literals.assigned,
-                  statistics.clauses.checked.total));
+    if (strict)
+      msg ("marked %zu literals %.2f per checked clause",
+           statistics.literals.marked,
+           average (statistics.literals.marked,
+                    statistics.clauses.checked.total));
+    else
+      msg ("assigned %zu literals %.2f per checked clause",
+           statistics.literals.assigned,
+           average (statistics.literals.assigned,
+                    statistics.clauses.checked.total));
   }
   msg ("maximum memory usage of %.0f MB", mega_bytes ());
   msg ("total time of %.2f seconds", t);
