@@ -1,4 +1,4 @@
-static const char *version = "0.2.0-rc.4";
+static const char *version = "0.2.0";
 
 // clang-format off
 
