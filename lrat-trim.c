@@ -1267,6 +1267,9 @@ static void parse_proof () {
           if (ch == EOF)
             prr ("end-of-file parsing clause identifier");
         }
+	if (uid & 1)
+	  prr ("negative identifier in clause addition");
+	uid >>= 1;
         if (uid > (unsigned)INT_MAX)
           prr ("clause identifier %u too large", uid);
         id = uid;

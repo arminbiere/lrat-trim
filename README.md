@@ -7,3 +7,5 @@ Use `./configure && make test` to build and test the tool `lrat-trim` and then u
 [`lrat-trim.c`](lrat-trim.c).
 
 For more build options see `./configure -h`.
+
+See also `NEWS.md`.
