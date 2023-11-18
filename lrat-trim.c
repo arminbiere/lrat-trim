@@ -1132,7 +1132,7 @@ static void delete_antecedent (int other, bool binary, size_t info) {
     else if (relax)
       ignored_deletions++;
     else
-      prr ("deleted clause '%d' at %s %zu"
+      prr ("deleted clause '%d' at %s %zu "
            "is neither an original clause nor has been added "
            "(use '--relax' to ignore such deletions)",
            other, binary ? "byte" : "line", info);
@@ -1143,7 +1143,7 @@ static void delete_antecedent (int other, bool binary, size_t info) {
       ignored_deletions++;
     else if (track) {
       assert (*other_deletion);
-      prr ("clause %d requested to be deleted at %s %zu"
+      prr ("clause %d requested to be deleted at %s %zu "
            "was already deleted at %s %zu "
            "(use '--relax' to ignore such deletions)",
            other, binary ? "byte" : "line", info, binary ? "byte" : "line",
