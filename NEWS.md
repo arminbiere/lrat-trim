@@ -1,4 +1,4 @@
-## Upcoming Version
+## Version 0.2.0
 
 - The proof parser now ignores comments in proof files which allows to
   interleave the output of the SAT solver and its proof via the same
@@ -8,7 +8,7 @@
   ```
   Note that CaDiCaL is in this example instructed to write the proof to
   stdout and `lrat-trim` vice versa to read it from stdin, both through
-  giving a dash '`-`` as second file argument.
+  giving a dash `-` as second file argument.
 
 - Ids in binary proofs are now all signed also for the clause id when
   adding a clause, which was not the case before. This matches the
