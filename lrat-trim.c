@@ -1,4 +1,4 @@
-static const char *version = "0.2.0-rc.3";
+static const char *version = "0.2.0-rc.4";
 
 // clang-format off
 
@@ -1555,9 +1555,29 @@ static void parse_proof () {
               prr ("end-of-file parsing antecedent in clause %d", id);
           }
           int other = (uother >> 1);
-          if (uother & 1)
-            other = -other;
-          PUSH (parsed_antecedents, other);
+	  int signed_other = (uother & 1) ? -other : other;
+          if (other) {
+            if (other >= id)
+              prr ("antecedent '%d' in clause %d exceeds clause",
+                   signed_other, id);
+            signed char status = ACCESS (clauses.status, other);
+            if (!status)
+              prr ("antecedent '%d' in clause %d "
+                   "is neither an original clause nor has been added",
+                   signed_other, id);
+            else if (status < 0) {
+              if (track) {
+                size_t info = ACCESS (clauses.deleted, other);
+                assert (info);
+                prr ("antecedent %d in clause %d was deleted at %s %zu",
+                     signed_other, id, binary ? "byte" : "clause", info);
+              } else
+                prr ("antecedent %d in clause %d was deleted before "
+                     "(run with '--track' for more information)",
+                     other, id);
+            }
+	  }
+          PUSH (parsed_antecedents, signed_other);
         }
       } else { // !binary
         int last = 0;
