@@ -1,3 +1,9 @@
+## Version 0.2.1
+
+- Added a contrib directory with a script to compare different modes.
+
+- Added 'xz' compressed input file support.
+
 ## Version 0.2.0
 
 - The proof parser now ignores comments in proof files which allows to
