@@ -1,6 +1,4 @@
 #!/bin/sh
-name=`basename $1 .cnf`
-[ "$2" = "-v" ] || exec 1>/dev/null 2>/dev/null
-set -x
+. ./verbose.sh
 proof=`basename $0 .sh`.proof
-cadical -q -n $1 $proof
+cadical -n$silent --lrat $1 $proof

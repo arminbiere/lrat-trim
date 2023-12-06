@@ -1,7 +1,8 @@
+cnf=prime4294967297.cnf
 all:
-	./compare-modes.sh prime65537.cnf
+	./compare-modes.sh $(cnf)
 verbose:
-	./compare-modes.sh -v prime65537.cnf
+	./compare-modes.sh -v $(cnf)
 clean:
 	rm -f *.out *.proof *.trimmed
 .PHONY: all verbose clean
