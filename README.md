@@ -7,4 +7,4 @@ for extended usage information or check out the top of [`lrat-trim.c`](lrat-trim
 
 For more build options see `./configure -h`.
 
-See also `NEWS.md`.
+See also [`NEWS.md`](NEWS.md).
