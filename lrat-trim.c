@@ -87,6 +87,7 @@ static const char * usage =
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -2625,7 +2626,7 @@ static void print_banner () {
   if (verbosity < 0)
     return;
   printf ("c LRAT-TRIM Version %s trims LRAT proofs\n"
-          "c Copyright (c) 2023 Armin Biere University of Freiburg\n",
+          "Copyright (c) 2023-2025 A. Biere, F. Pollitt, Univ. Freiburg\n",
           version);
   fflush (stdout);
 }

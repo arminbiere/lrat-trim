@@ -1,6 +1,8 @@
 ## Version 0.2.1
 
-- Added a contrib directory with a script to compare different modes.
+- Simple rat checking for extended resolution in CaDiCaL.
+
+- Added a `contrib` directory with a script to compare different modes.
 
 - Added 'xz' compressed input file support.
 
