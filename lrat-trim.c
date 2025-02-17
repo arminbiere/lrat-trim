@@ -887,8 +887,13 @@ static void check_clause_extension (int id, int *literals,
       const unsigned idx = 2 * abs (lit) + (lit < 0);
       size_t count = ACCESS (variables.used, idx);
       if (!count && ext)
+#if 0
         crr (id, "multiple pure literals '%d' and '%d' in extension clause",
              ext, lit);
+#else
+        wrn ("multiple pure literals '%d' and '%d' in extension clause",
+             ext, lit);
+#endif
       if (!count)
         ext = lit;
       if (value < 0) {
@@ -945,12 +950,35 @@ static void check_clause_extension (int id, int *literals,
   }
 }
 
+static void adjust_variables (int idx) {
+  if (strict)
+    ADJUST (variables.marks, idx);
+  else
+    ADJUST (variables.values, idx);
+  if (!norat) // actually allocates 2 * header_variables + 2
+    ADJUST (variables.used, 2 * idx + 1);
+}
+
+static void import_literals (int * literals) {
+  int max_idx = 0;
+  for (int *l = literals, lit; (lit = *l); l++) {
+    assert (lit != INT_MIN);
+    int idx = abs (lit);
+    if (idx > max_idx)
+      max_idx = idx;
+  }
+  adjust_variables (max_idx);
+}
+
 static void check_clause_non_strictly_by_propagation (int id, int *literals,
                                                       int *antecedents) {
   assert (!strict);
   assert (EMPTY (trail));
 
+  import_literals (literals);
+
   statistics.clauses.resolved++;
+
   for (int *l = literals, lit; (lit = *l); l++) {
     signed char value = assigned_literal (lit);
     if (value < 0) {
@@ -1233,12 +1261,7 @@ static void parse_cnf () {
     prr ("expected new-line after 'p cnf %d %d'", header_variables,
          header_clauses);
   msg ("found 'p cnf %d %d' header", header_variables, header_clauses);
-  if (strict)
-    ADJUST (variables.marks, header_variables);
-  else
-    ADJUST (variables.values, header_variables);
-  if (!norat) // actually allocates 2 * header_variables + 2
-    ADJUST (variables.used, 2 * header_variables + 1);
+  adjust_variables (header_variables);
   ADJUST (clauses.literals, header_clauses);
   ADJUST (clauses.status, header_clauses);
   int lit = 0, parsed_clauses = 0;
@@ -2625,9 +2648,10 @@ static void open_input_files () {
 static void print_banner () {
   if (verbosity < 0)
     return;
-  printf ("c LRAT-TRIM Version %s trims LRAT proofs\n"
-          "c Copyright (c) 2023-2025 A. Biere, F. Pollitt, Univ. Freiburg\n",
-          version);
+  printf (
+      "c LRAT-TRIM Version %s trims LRAT proofs\n"
+      "c Copyright (c) 2023-2025 A. Biere, F. Pollitt, Univ. Freiburg\n",
+      version);
   fflush (stdout);
 }
 
