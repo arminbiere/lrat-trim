@@ -886,16 +886,21 @@ static void check_clause_extension (int id, int *literals,
       signed char value = assigned_literal (lit);
       const unsigned idx = 2 * abs (lit) + (lit < 0);
       size_t count = ACCESS (variables.used, idx);
-      if (!count && ext)
+      const unsigned not_idx = 2 * abs (lit) + (lit > 0);
+      size_t not_count = ACCESS (variables.used, not_idx);
+      bool pure = !count && !not_count;
+      if (pure && ext) {
 #if 0
-        crr (id, "multiple pure literals '%d' and '%d' in extension clause",
-             ext, lit);
+          crr (id, "multiple pure literals '%d' and '%d' in extension clause",
+               ext, lit);
 #else
         wrn ("multiple pure literals '%d' and '%d' in extension clause",
              ext, lit);
 #endif
-      if (!count)
+      } else if (pure)
         ext = lit;
+      if (!count)
+        dbg ("no occurrence of literal '%d' so far", lit);
       if (value < 0) {
         if (strict)
           crr (id, "duplicated literal '%d'", lit);
@@ -959,7 +964,7 @@ static void adjust_variables (int idx) {
     ADJUST (variables.used, 2 * idx + 1);
 }
 
-static void import_literals (int * literals) {
+static void import_literals (int *literals) {
   int max_idx = 0;
   for (int *l = literals, lit; (lit = *l); l++) {
     assert (lit != INT_MIN);
