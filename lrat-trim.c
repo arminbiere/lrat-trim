@@ -104,10 +104,6 @@ struct file {
   int saved;
 };
 
-struct bool_stack {
-  bool *begin, *end, *allocated;
-};
-
 struct int_stack {
   int *begin, *end, *allocated;
 };
@@ -190,7 +186,8 @@ static int first_clause_added_in_proof;
 static struct {
   struct char_map marks;
   struct char_map values;
-  struct size_t_map used;
+  struct size_t_map pos_count;
+  struct size_t_map neg_count;
   int original;
 } variables;
 
@@ -198,6 +195,7 @@ static struct int_stack trail;
 
 static struct {
   struct char_map status;
+  struct char_map marked;
   struct ints_map literals;
   struct ints_map antecedents;
   struct size_t_map deleted;
@@ -405,6 +403,10 @@ static void *coverage_realloc (size_t line, void *p, size_t bytes) {
 
 #define ACCESS(STACK, OFFSET) \
   ((STACK).begin[assert ((OFFSET) < SIZE (STACK)), (OFFSET)])
+
+#define COUNT(LIT) \
+  (ACCESS ((((LIT) > 0) ? variables.pos_count : variables.neg_count), \
+           abs (LIT)))
 
 #define POP(STACK) (assert (!EMPTY (STACK)), *--(STACK).end)
 
@@ -858,8 +860,7 @@ static void crr (int id, const char *fmt, ...) {
 
 static void mark_used_literals (int *literals) {
   for (int *l = literals, lit; (lit = *l); l++) {
-    const unsigned idx = 2 * abs (lit) + (lit < 0);
-    size_t *count = &ACCESS (variables.used, idx);
+    size_t *count = &COUNT (lit);
     // SIZE_MAX is at least 65535, which should be enough.
     if (*count != SIZE_MAX)
       (*count)++;
@@ -871,36 +872,24 @@ static void check_clause_extension (int id, int *literals,
   if (!*antecedents) {
     bool pure = false;
     for (int *l = literals, lit; (lit = *l); l++) {
-      const unsigned idx = 2 * abs (lit) + (lit > 0); // access -lit
-      const size_t count = ACCESS (variables.used, idx);
+      const size_t count = COUNT (-lit);
       if (!count) {
         pure = true;
         break;
       }
     }
     if (!pure)
-      crr (id, "empty antecedents but clause not pure");
+      crr (id, "empty antecedents "
+               "(for extensions the clause should be pure)");
   } else {
     int ext = 0;
     for (int *l = literals, lit; (lit = *l); l++) {
       signed char value = assigned_literal (lit);
-      const unsigned idx = 2 * abs (lit) + (lit < 0);
-      size_t count = ACCESS (variables.used, idx);
-      const unsigned not_idx = 2 * abs (lit) + (lit > 0);
-      size_t not_count = ACCESS (variables.used, not_idx);
-      bool pure = !count && !not_count;
-      if (pure && ext) {
-#if 0
-          crr (id, "multiple pure literals '%d' and '%d' in extension clause",
-               ext, lit);
-#else
-        wrn ("multiple pure literals '%d' and '%d' in extension clause",
-             ext, lit);
-#endif
-      } else if (pure)
+      size_t count = COUNT (lit);
+      if (!count) {
         ext = lit;
-      if (!count)
         dbg ("no occurrence of literal '%d' so far", lit);
+      }
       if (value < 0) {
         if (strict)
           crr (id, "duplicated literal '%d'", lit);
@@ -913,18 +902,27 @@ static void check_clause_extension (int id, int *literals,
       assign_literal (-lit);
     }
     if (!ext)
-      crr (id, "no pure literal for extension check");
-    const unsigned eidx = 2 * abs (ext) + (ext > 0);
-    size_t numants = ACCESS (variables.used, eidx); // access -ext
+      crr (id, "no pure literal for extension check "
+               "(empty clause)");
+    size_t numants = COUNT (-ext);
     for (int *a = antecedents, aid; (aid = *a); a++) {
-      if (numants)
+      if (aid > 0)
+        crr (id,
+             "positive id '%d' in extension check not supported "
+             "(expected only negative antecedents)",
+             aid);
+      ADJUST (clauses.marked, -aid);
+      if (ACCESS (clauses.marked, -aid)++) {
+        if (strict)
+          crr (id, "multiple occurrence of (negative) id '%d'", aid);
+        dbg ("skipping multple occurrence of '%d", aid);
+      } else if (numants)
         numants--;
       else
         crr (id,
-             "more antecedents than occurrences of '%d' (or more than %zd)",
+             "more antecedents than occurrences of '%d' "
+             "(or more than %zd)",
              -ext, SIZE_MAX);
-      if (aid > 0)
-        crr (id, "positive id '%d' in extension check not supported", aid);
       int *als = ACCESS (clauses.literals, -aid);
       dbgs (als, "checking blocked antecedent %d clause", -aid);
       bool hasnotext = false;
@@ -946,8 +944,10 @@ static void check_clause_extension (int id, int *literals,
         crr (id, "antecedent %d does not contain extension literal %d",
              -aid, -ext);
       if (!blocked)
-        crr (id, "antecedent %d not blocked", -aid);
+        crr (id, "antecedent %d not blocked in extension clause", -aid);
     }
+    for (int *a = antecedents, aid; (aid = *a); a++)
+      ACCESS (clauses.marked, -aid) = 0;
     if (numants)
       crr (id, "occurrences of '%d' not equal antecendents (missing %zd)",
            -ext, numants);
@@ -957,11 +957,13 @@ static void check_clause_extension (int id, int *literals,
 
 static void adjust_variables (int idx) {
   if (strict)
-    ADJUST (variables.marks, idx);
+    ADJUST (variables.marks, idx); // 2 * idx + 1
   else
     ADJUST (variables.values, idx);
-  if (!norat) // actually allocates 2 * header_variables + 2
-    ADJUST (variables.used, 2 * idx + 1);
+  if (!norat) {
+    ADJUST (variables.pos_count, idx);
+    ADJUST (variables.neg_count, idx);
+  }
 }
 
 static void import_literals (int *literals) {
@@ -1136,7 +1138,8 @@ static void check_clause (int id, int *literals, int *antecedents) {
     check_clause_strictly_by_resolution (id, literals, antecedents);
   else
     check_clause_non_strictly_by_propagation (id, literals, antecedents);
-  if (!norat)
+  if (!norat) // TODO: lazy counts when needed (supercedes norat option
+              // (--rup))
     mark_used_literals (literals);
 }
 
@@ -1577,10 +1580,11 @@ static void parse_proof () {
       while (ISDIGIT (ch = read_ascii ())) {
         if (!id)
           prr ("unexpected digit '%c' after '0'", ch);
-        if (INT_MAX / 10 < id)
+        if (INT_MAX / 10 < id) {
         LINE_IDENTIFIER_EXCEEDS_INT_MAX:
           prr ("line identifier '%s' exceeds 'INT_MAX'",
                exceeds_int_max (id, ch));
+        }
         id *= 10;
         int digit = ch - '0';
         if (INT_MAX - digit < id) {
@@ -1652,10 +1656,11 @@ static void parse_proof () {
           while (ISDIGIT ((ch = read_ascii ()))) {
             if (!other)
               prr ("unexpected digit '%c' after '0' in deletion", ch);
-            if (INT_MAX / 10 < other)
+            if (INT_MAX / 10 < other) {
             DELETED_CLAUSE_IDENTIFIER_EXCEEDS_INT_MAX:
               prr ("deleted clause identifier '%s' exceeds 'INT_MAX'",
                    exceeds_int_max (other, ch));
+            }
             other *= 10;
             int digit = ch - '0';
             if (INT_MAX - digit < other) {
@@ -2377,8 +2382,11 @@ static void release () {
     RELEASE (variables.marks);
   else
     RELEASE (variables.values);
-  if (!norat)
-    RELEASE (variables.used);
+  if (!norat) {
+    RELEASE (variables.pos_count);
+    RELEASE (variables.neg_count);
+    RELEASE (clauses.marked);
+  }
   RELEASE (trail);
   release_ints_map (&clauses.literals);
   release_ints_map (&clauses.antecedents);
