@@ -957,8 +957,7 @@ static void check_strict_clause_extension (int id, int *literals,
       assert (lit != INT_MIN);
       int idx = abs (lit);
       signed char *m = &ACCESS (variables.marks, idx);
-      signed char mark = *m;
-      assert (mark);
+      assert (*m);
       *m = 0;
     }
   }
