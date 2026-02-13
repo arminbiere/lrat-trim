@@ -867,8 +867,9 @@ static void mark_used_literals (int *literals) {
   }
 }
 
-static void check_clause_extension (int id, int *literals,
-                                    int *antecedents) {
+static void check_strict_clause_extension (int id, int *literals,
+                                           int *antecedents) {
+  assert (strict);
   if (!*antecedents) {
     bool pure = false;
     for (int *l = literals, lit; (lit = *l); l++) {
@@ -884,25 +885,23 @@ static void check_clause_extension (int id, int *literals,
   } else {
     int ext = 0;
     for (int *l = literals, lit; (lit = *l); l++) {
-      signed char value = assigned_literal (lit);
-      size_t count = COUNT (lit);
-      if (!count) {
+      int idx = abs (lit);
+      signed char *m = &ACCESS (variables.marks, idx);
+      signed char mark = *m;
+      if (lit < 0)
+        mark = -mark;
+      if (!ext) {
         ext = lit;
-        dbg ("no occurrence of literal '%d' so far", lit);
+        dbg ("extension check on first literal '%d'", lit);
       }
-      if (value < 0) {
-        if (strict)
-          crr (id, "duplicated literal '%d'", lit);
-        dbg ("skipping duplicated literal '%d' in clause '%d'", lit, id);
-        continue;
-      }
-      if (strict && value > 0)
+      if (mark < 0)
+        crr (id, "duplicated literal '%d'", lit);
+      if (mark > 0)
         crr (id, "tautology on '%d'", lit);
-      assert (!value);
-      assign_literal (-lit);
+      *m = lit < 0 ? -1 : 1;
     }
     if (!ext)
-      crr (id, "no pure literal for extension check "
+      crr (id, "no literal for extension check "
                "(empty clause)");
     size_t numants = COUNT (-ext);
     for (int *a = antecedents, aid; (aid = *a); a++) {
@@ -932,6 +931,95 @@ static void check_clause_extension (int id, int *literals,
           if (hasnotext && strict)
             crr (id, "multiple occurrence of '%d' in antecedent %d", -ext,
                  -aid);
+          hasnotext = true;
+          continue;
+        }
+        int idx = abs (lit);
+        signed char *m = &ACCESS (variables.marks, idx);
+        signed char mark = *m;
+        if (lit < 0 && mark > 0 && !blocked)
+          blocked = lit;
+        else if (lit > 0 && mark < 0 && !blocked)
+          blocked = lit;
+      }
+      if (!hasnotext)
+        crr (id, "antecedent %d does not contain extension literal %d",
+             -aid, -ext);
+      if (!blocked)
+        crr (id, "antecedent %d not blocked in extension clause", -aid);
+    }
+    for (int *a = antecedents, aid; (aid = *a); a++)
+      ACCESS (clauses.marked, -aid) = 0;
+    if (numants)
+      crr (id, "occurrences of '%d' not equal antecendents (missing %zd)",
+           -ext, numants);
+    for (int *l = literals, lit; (lit = *l); l++) {
+      assert (lit != INT_MIN);
+      int idx = abs (lit);
+      signed char *m = &ACCESS (variables.marks, idx);
+      signed char mark = *m;
+      assert (mark);
+      *m = 0;
+    }
+  }
+}
+
+static void check_clause_extension (int id, int *literals,
+                                    int *antecedents) {
+  assert (!strict);
+  if (!*antecedents) {
+    bool pure = false;
+    for (int *l = literals, lit; (lit = *l); l++) {
+      const size_t count = COUNT (-lit);
+      if (!count) {
+        pure = true;
+        break;
+      }
+    }
+    if (!pure)
+      crr (id, "empty antecedents "
+               "(for extensions the clause should be pure)");
+  } else {
+    int ext = 0;
+    for (int *l = literals, lit; (lit = *l); l++) {
+      signed char value = assigned_literal (lit);
+      if (!ext) {
+        ext = lit;
+        dbg ("extension check on first literal '%d'", lit);
+      }
+      if (value < 0) {
+        dbg ("skipping duplicated literal '%d' in clause '%d'", lit, id);
+        continue;
+      }
+      assert (!value);
+      assign_literal (-lit);
+    }
+    if (!ext)
+      crr (id, "no literal for extension check "
+               "(empty clause)");
+    size_t numants = COUNT (-ext);
+    for (int *a = antecedents, aid; (aid = *a); a++) {
+      if (aid > 0)
+        crr (id,
+             "positive id '%d' in extension check not supported "
+             "(expected only negative antecedents)",
+             aid);
+      ADJUST (clauses.marked, -aid);
+      if (ACCESS (clauses.marked, -aid)++) {
+        dbg ("skipping multple occurrence of '%d", aid);
+      } else if (numants)
+        numants--;
+      else
+        crr (id,
+             "more antecedents than occurrences of '%d' "
+             "(or more than %zd)",
+             -ext, SIZE_MAX);
+      int *als = ACCESS (clauses.literals, -aid);
+      dbgs (als, "checking blocked antecedent %d clause", -aid);
+      bool hasnotext = false;
+      int blocked = 0;
+      for (int *l = als, lit; (lit = *l); l++) {
+        if (lit == -ext) {
           hasnotext = true;
           continue;
         }
@@ -1017,6 +1105,8 @@ static void check_clause_non_strictly_by_propagation (int id, int *literals,
     int unit = 0;
     for (int *l = als, lit; (lit = *l); l++) {
       signed char value = assigned_literal (lit);
+      if (unit == -lit)
+        crr (id, "antecedent '%d' is tautological", aid);
       if (value < 0)
         continue;
       if (unit && unit != lit)
@@ -1048,18 +1138,20 @@ static void check_clause_strictly_by_resolution (int id, int *literals,
   assert (strict);
   assert (EMPTY (trail));
 
+  import_literals (literals);
+
   int *a = antecedents, aid;
   while ((aid = *a))
     if (aid < 0 && norat)
       crr (id, "checking negative RAT antecedent '%d' not supported", aid);
     else if (aid < 0)
-      return check_clause_extension (id, literals, antecedents);
+      return check_strict_clause_extension (id, literals, antecedents);
     else
       a++;
 
   // empty antecedents.
   if (!(a - antecedents) && !norat)
-    return check_clause_extension (id, literals, antecedents);
+    return check_strict_clause_extension (id, literals, antecedents);
 
   size_t resolvent_size = 0;
   bool first = true;
@@ -1138,8 +1230,7 @@ static void check_clause (int id, int *literals, int *antecedents) {
     check_clause_strictly_by_resolution (id, literals, antecedents);
   else
     check_clause_non_strictly_by_propagation (id, literals, antecedents);
-  if (!norat) // TODO: lazy counts when needed (supercedes norat option
-              // (--rup))
+  if (!norat) // lazy counts when needed (supercedes norat option --rup)
     mark_used_literals (literals);
 }
 
@@ -1359,7 +1450,8 @@ static void parse_cnf () {
         statistics.clauses.checked.empty++;
         empty_clause = parsed_clauses;
       }
-      mark_used_literals (ACCESS (clauses.literals, parsed_clauses));
+      if (!norat)
+        mark_used_literals (ACCESS (clauses.literals, parsed_clauses));
     }
     if (ch == 'c')
       goto SKIP_COMMENT_AFTER_HEADER;
