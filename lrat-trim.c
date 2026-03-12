@@ -1046,7 +1046,7 @@ static void check_clause_extension (int id, int *literals,
     for (int *a = antecedents, aid; (aid = *a); a++)
       ACCESS (clauses.marked, -aid) = 0;
     if (numants)
-      crr (id, "occurrences of '%d' not equal antecendents (missing %zd)",
+      crr (id, "occurrences of '%d' not equal antecedents (missing %zd)",
            -ext, numants);
     backtrack ();
   }
