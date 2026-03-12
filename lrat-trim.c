@@ -207,6 +207,8 @@ static struct {
   struct int_map map;
 } clauses;
 
+static double start;
+
 static void die (const char *, ...) __attribute__ ((format (printf, 1, 2)));
 static void prr (const char *, ...) __attribute__ ((format (printf, 1, 2)));
 static void msg (const char *, ...) __attribute__ ((format (printf, 1, 2)));
@@ -756,12 +758,20 @@ static inline void write_size_t (size_t i) {
 #include <sys/time.h>
 #include <unistd.h>
 
-static double process_time () {
+static double process_time (void) {
   struct rusage u;
   double res;
   (void)getrusage (RUSAGE_SELF, &u);
   res = u.ru_utime.tv_sec + 1e-6 * u.ru_utime.tv_usec;
   res += u.ru_stime.tv_sec + 1e-6 * u.ru_stime.tv_usec;
+  return res;
+}
+
+static double real_time (void) {
+  struct timeval tv;
+  double res = 0;
+  if (!gettimeofday (&tv, 0))
+    res = 1e-6 * tv.tv_usec + tv.tv_sec;
   return res;
 }
 
@@ -2802,11 +2812,12 @@ static void print_mode () {
 }
 
 static void print_statistics () {
-  double t = process_time ();
+  double p = process_time ();
+  double r = real_time () - start;
   if (checking) {
     msg ("checked %zu clauses %.0f per second",
          statistics.clauses.checked.total,
-         average (statistics.clauses.checked.total, t));
+         average (statistics.clauses.checked.total, p));
     msg ("resolved %zu clauses %.2f per checked clause",
          statistics.clauses.resolved,
          average (statistics.clauses.resolved,
@@ -2822,8 +2833,9 @@ static void print_statistics () {
            average (statistics.literals.assigned,
                     statistics.clauses.checked.total));
   }
-  msg ("maximum memory usage of %.0f MB", mega_bytes ());
-  msg ("total time of %.2f seconds", t);
+  msg ("maximum-resident-set-size of %.0f MB", mega_bytes ());
+  msg ("process-time of %.2f seconds (%.2f %%)", p, percent (p, r));
+  msg ("wall-clock-time of %.2f seconds", r);
 }
 
 static void close_coverage () {
@@ -2834,6 +2846,7 @@ static void close_coverage () {
 }
 
 int main (int argc, char **argv) {
+  start = real_time ();
   options (argc, argv);
   open_input_files ();
   print_banner ();
