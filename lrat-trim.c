@@ -924,7 +924,7 @@ static void check_strict_clause_extension (int id, int *literals,
       if (ACCESS (clauses.marked, -aid)++) {
         if (strict)
           crr (id, "multiple occurrence of (negative) id '%d'", aid);
-        dbg ("skipping multple occurrence of '%d", aid);
+        dbg ("skipping multiple occurrence of '%d", aid);
       } else if (numants)
         numants--;
       else
@@ -1015,7 +1015,7 @@ static void check_clause_extension (int id, int *literals,
              aid);
       ADJUST (clauses.marked, -aid);
       if (ACCESS (clauses.marked, -aid)++) {
-        dbg ("skipping multple occurrence of '%d", aid);
+        dbg ("skipping multiple occurrence of '%d", aid);
       } else if (numants)
         numants--;
       else
