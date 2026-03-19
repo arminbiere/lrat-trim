@@ -2764,7 +2764,7 @@ static void print_banner () {
     return;
   printf (
       "c LRAT-TRIM Version %s trims LRAT proofs\n"
-      "c Copyright (c) 2023-2025 A. Biere, F. Pollitt, Univ. Freiburg\n",
+      "c Copyright (c) 2023-2026 A. Biere, F. Pollitt, Univ. Freiburg\n",
       version);
   fflush (stdout);
 }

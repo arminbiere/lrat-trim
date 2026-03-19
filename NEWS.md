@@ -1,6 +1,8 @@
 ## Version 0.2.1
 
-- Simple rat checking for extended resolution in CaDiCaL.
+- Printing both wall-clock time and process-time.
+
+- Simple RAT checking for extended resolution in CaDiCaL.
 
 - Added a `contrib` directory with a script to compare different modes.
 
