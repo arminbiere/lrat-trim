@@ -8,6 +8,8 @@
 
 - Added 'xz' compressed input file support.
 
+- Fixed a bug where a tautological clause could be resolved.
+
 ## Version 0.2.0
 
 - The proof parser now ignores comments in proof files which allows to

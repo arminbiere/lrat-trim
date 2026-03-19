@@ -52,6 +52,7 @@ run nounit1
 run delnonexist1
 run delnonexist2
 run deltwice
+run tautology
 run cidtoosmall1
 run cidtoosmall2
 
