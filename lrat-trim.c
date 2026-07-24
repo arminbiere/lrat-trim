@@ -777,8 +777,13 @@ static double real_time (void) {
 
 static size_t maximum_resident_set_size (void) {
   struct rusage u;
-  (void)getrusage (RUSAGE_SELF, &u);
-  return ((size_t)u.ru_maxrss) << 10;
+  if (getrusage (RUSAGE_SELF, &u))
+    return 0;
+  size_t res = u.ru_maxrss;
+#ifndef __APPLE__
+  res <<= 10;
+#endif
+  return res;
 }
 
 static double mega_bytes (void) {
